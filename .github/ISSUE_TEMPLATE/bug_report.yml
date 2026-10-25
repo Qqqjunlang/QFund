@@ -1,0 +1,41 @@
+name: 问题反馈
+description: 报告安装、启动或使用中的问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: 请勿提交密码、cookie、token、个人数据库、浏览器profile或完整私人日志。安全漏洞请按SECURITY.md报告。
+  - type: input
+    id: version
+    attributes:
+      label: QFund版本与安装方式
+      placeholder: 例如0.3.0，EXE安装版或源码版
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows版本
+      placeholder: 例如Windows 11 x64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开软件开始，按顺序说明操作。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果与错误提示
+      description: 可附已遮盖私人信息的截图或最小错误片段。
+    validations:
+      required: true

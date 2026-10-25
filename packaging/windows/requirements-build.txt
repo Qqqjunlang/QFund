@@ -1,0 +1,8 @@
+# 本轮原型实际验证的构建工具，仅安装到独立构建环境，不加入运行依赖。
+pyinstaller==6.12.0
+pyinstaller-hooks-contrib==2025.2
+altgraph==0.17.4
+pefile==2023.2.7
+pywin32-ctypes==0.2.3
+# 旧版打包工具仍使用pkg_resources；只覆盖独立构建环境，源码运行锁定依赖不变。
+setuptools==80.9.0

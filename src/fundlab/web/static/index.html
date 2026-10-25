@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QFund · 基金数据工作台</title>
+  <link rel="icon" type="image/svg+xml" href="qfund-icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="workspace" id="workspace">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand"><img class="brand-mark" src="qfund-icon.svg" width="36" height="36" alt="" aria-hidden="true"><div><strong>QFund</strong><small>基金数据工作台</small></div></div>
+      <div class="nav-label">工作台</div>
+      <nav>
+        <button data-page="home"><span class="nav-icon" aria-hidden="true">⌂</span>首页</button>
+        <button data-page="collect"><span class="nav-icon" aria-hidden="true">↓</span>数据获取</button>
+        <button data-page="data"><span class="nav-icon" aria-hidden="true">▤</span>数据查询</button>
+        <button data-page="analysis"><span class="nav-icon" aria-hidden="true">↗</span>数据分析</button>
+      </nav>
+      <div class="sidebar-footer"><span class="local-dot"></span> 本机运行<span class="footer-note">数据保存在你的电脑中</span></div>
+    </aside>
+    <div id="splitter" class="splitter" role="separator" aria-label="调整导航栏宽度" aria-orientation="vertical" aria-valuemin="176" aria-valuemax="340" aria-valuenow="220" tabindex="0"><span></span></div>
+    <main>
+      <header class="topbar"><div class="breadcrumb">工作台<span>/</span><b id="page-name">首页</b></div><time id="today"></time></header>
+      <div class="content">
+        <div class="preview-note"><span class="preview-pill">本地工作台</span></div>
+        <section id="page-home" class="page" aria-labelledby="home-title">
+          <div class="page-heading"><div><h1 id="home-title">基金数据概览</h1></div><button class="primary" data-go="collect">获取基金数据 <span aria-hidden="true">↗</span></button></div>
+          <div class="stats-grid">
+            <article class="stat-card"><span class="stat-label">今天</span><strong id="date-short" class="date-number"></strong><span id="weekday" class="stat-foot"></span></article>
+            <article class="stat-card"><span class="stat-label">已有基金</span><div><strong id="fund-count">—</strong><span class="stat-unit">只</span></div><button class="text-button" data-go="data">查看本地数据 <span aria-hidden="true">→</span></button></article>
+            <article class="stat-card"><span class="stat-label">最近一次更新</span><div id="latest-status" class="latest-status">—</div><span id="latest-brief" class="stat-foot"></span></article>
+          </div>
+          <article class="panel"><div class="panel-heading"><div><h2>本地基金</h2><p>选择一只基金，查看数据或进入分析。</p></div><button class="text-button" data-go="data">查看全部 →</button></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>记录数</th><th>数据区间</th><th class="action-col">操作</th></tr></thead><tbody id="home-funds"></tbody></table></div></article>
+          <article class="recent-panel"><span class="recent-icon" aria-hidden="true">↻</span><div><h2>最近更新记录</h2><p id="latest-detail">暂无更新记录</p></div></article>
+        </section>
+        <section id="page-collect" class="page" hidden aria-labelledby="collect-title">
+          <div class="page-heading"><div><h1 id="collect-title">获取基金数据</h1><p>一次获取一只基金，已有基金继续累积更新。</p></div></div>
+          <article class="panel form-panel"><div class="collect-heading"><h2>查找基金</h2><button type="button" class="secondary" id="collect-login">专用 Edge 登录</button></div><form id="collect-search-form"><label for="fund-query">基金代码或名称</label><div class="input-row"><input id="fund-query" placeholder="例如：159501 或 纳指ETF嘉实" autocomplete="off" maxlength="100" required><button type="submit" class="primary" id="collect-search">查找基金</button></div></form><p class="helper">名称匹配多只基金时，先选择目标基金，再开始获取。登录失效时请点击右上方的登录按钮。</p><div class="history-error" id="collect-error" hidden role="alert"></div></article>
+          <article class="panel collect-local" aria-labelledby="collect-local-title"><div class="panel-heading"><div><h2 id="collect-local-title">已有数据 <span class="count-badge" id="collect-local-count">—</span></h2><p id="collect-local-status" role="status" aria-live="polite">正在读取本地数据…</p></div><button type="button" class="secondary" id="collect-refresh-data">刷新已有数据</button></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>记录数</th><th>数据区间</th><th class="action-col">操作</th></tr></thead><tbody id="collect-funds"></tbody></table></div></article>
+          <article class="panel" id="collect-candidates" hidden><div class="panel-heading"><div><h2>确认要获取的基金</h2><p id="candidate-note"></p></div><button class="primary" id="collect-start" disabled>获取所选基金数据</button></div><div class="table-scroll"><table><thead><tr><th>选择</th><th>代码</th><th>基金名称</th><th>类别</th></tr></thead><tbody id="candidate-body"></tbody></table></div></article>
+          <article class="panel collect-task"><div class="panel-heading"><div><h2>任务状态 <span class="job-badge" id="collect-task-badge">尚未执行</span></h2><p id="collect-task-message" role="status" aria-live="polite">查找基金后，确认并开始获取。</p></div><div class="button-row"><button type="button" class="secondary" id="collect-refresh">刷新任务状态</button><button type="button" class="secondary" id="collect-cancel" hidden>取消登录</button></div></div><div class="collect-task-detail" id="collect-task-detail"></div><div class="collect-result-actions" id="collect-result-actions" hidden><button class="secondary" id="collect-view">查看数据</button><button class="primary" id="collect-analyze">分析这只基金 →</button><button class="secondary" id="collect-export" hidden>仅重试导出</button><button class="secondary" id="collect-again" hidden>重新获取这只基金</button></div></article>
+          <article class="panel watchlist-panel" aria-labelledby="watchlist-title">
+            <div class="panel-heading"><div><h2 id="watchlist-title">自动更新名单 <span class="count-badge" id="watchlist-count">—</span></h2><p id="scheduler-status">正在读取Windows定时任务状态…</p></div><button type="button" class="secondary" id="watchlist-refresh">刷新名单与计划</button></div>
+            <div class="watchlist-plan">
+              <div class="schedule-heading"><strong id="schedule-rule">每个交易日 · 18:00</strong><div class="schedule-help"><button type="button" class="help-button" aria-label="自动更新说明" aria-describedby="schedule-help-content">?</button><div id="schedule-help-content" class="schedule-tooltip" role="tooltip">
+                <p>按沪深交易日历执行，休市日跳过；错过的计划合并补跑，同一天成功后不重复采集。</p>
+                <p>名单中的基金共用此时间。修改只影响后续计划，不会立即采集。</p>
+                <p>电脑需已登录当前Windows用户，不会主动唤醒电脑。专用Edge登录失效时，请本人重新登录。</p>
+                <p>停用可暂停自动更新；移除只删除本项目定时任务，保留名单、时间和行情。</p>
+                <p id="schedule-summary">正在读取执行计划…</p><p id="calendar-status"></p><p id="scheduler-detail"></p>
+              </div></div></div>
+              <div class="schedule-toolbar"><form id="schedule-time-form" class="schedule-time-controls"><div><label for="schedule-time">更新时间</label><input type="time" id="schedule-time" value="18:00" step="60" required disabled></div><button type="submit" class="secondary" id="schedule-save" disabled>保存时间</button></form>
+                <div class="button-row schedule-actions"><button type="button" class="primary" id="scheduler-install" disabled>启用自动更新</button><button type="button" class="secondary" id="scheduler-disable" disabled>停用自动更新</button><button type="button" class="secondary" id="scheduler-remove" disabled>移除定时任务</button></div>
+              </div>
+              <p id="schedule-next"></p><p id="schedule-alert" role="status" aria-live="polite" hidden></p><p id="schedule-save-status" role="status" aria-live="polite"></p>
+            </div>
+            <form id="watchlist-form" class="watchlist-controls"><div><label for="watchlist-fund">选择已有本地数据的基金</label><select id="watchlist-fund" disabled><option value="">正在读取…</option></select></div><button type="submit" class="primary" id="watchlist-add" disabled>加入名单</button><span class="schedule-help watchlist-help"><button type="button" class="help-button" aria-label="名单操作说明" aria-describedby="watchlist-help-content">?</button><span id="watchlist-help-content" class="schedule-tooltip" role="tooltip">启用表示参加今后的自动更新；停用后保留名单。移出只影响名单，本地行情和下载文件都会保留。</span></span></form>
+            <div id="watchlist-error" class="history-error" hidden role="alert"></div>
+            <p id="watchlist-status" class="watchlist-note" role="status" aria-live="polite">正在读取名单…</p>
+            <div class="table-scroll"><table><thead><tr><th>基金</th><th>名单状态</th><th>上次自动更新</th><th class="action-col">操作</th></tr></thead><tbody id="watchlist-body"></tbody></table></div>
+          </article>
+        </section>
+        <section id="page-data" class="page" hidden aria-labelledby="data-title">
+          <div class="page-heading"><div><h1 id="data-title">本地基金数据</h1></div><button class="primary" data-go="collect">获取基金数据 ↗</button></div>
+          <article class="panel"><div class="panel-heading"><h2>已有基金 <span class="count-badge" id="list-count"></span></h2><div class="button-row"><input class="filter-input" id="filter" aria-label="筛选本地基金" placeholder="按代码或名称筛选"><button class="secondary" id="refresh-data">刷新列表</button></div></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>类别</th><th>记录数</th><th>数据区间</th><th>最近更新</th><th class="action-col">操作</th></tr></thead><tbody id="data-funds"></tbody></table></div></article>
+          <article class="panel" id="history-panel">
+            <div class="panel-heading"><div><h2 id="selected-data">请选择基金</h2><p id="history-meta"></p></div><button class="secondary" id="analyze-selected">分析这只基金 →</button></div>
+            <form class="history-controls" id="date-form"><div><label for="history-start">开始日期</label><input type="date" id="history-start"></div><span class="date-dash">至</span><div><label for="history-end">结束日期</label><input type="date" id="history-end"></div><button type="submit" class="primary">筛选日期</button><button type="button" class="secondary" id="reset-dates">全部日期</button></form>
+            <div class="download-bar"><span class="helper" id="history-summary" role="status" aria-live="polite">选择基金后查看历史数据</span><div class="button-row"><button class="secondary" id="download-xlsx" disabled>下载 Excel</button><button class="secondary" id="download-csv" disabled>下载 CSV</button></div></div>
+            <p class="download-scope">下载包含当前已应用日期区间的全部记录，不受分页影响。缺失值显示“—”，下载文件留空。</p>
+            <div id="history-error" class="history-error" hidden role="alert"></div><div id="download-status" class="download-status" hidden role="status" aria-live="polite"></div>
+            <div class="table-scroll history-scroll" tabindex="0" aria-label="基金历史明细，可横向滚动"><table class="history-table"><thead id="history-head"></thead><tbody id="history-body"></tbody></table></div>
+            <div class="pagination"><span id="page-info">每页 50 条 · 价格日期从新到旧</span><div class="button-row"><button class="secondary" id="prev-page" disabled>上一页</button><button class="secondary" id="next-page" disabled>下一页</button></div></div>
+          </article>
+        </section>
+        <section id="page-analysis" class="page" hidden aria-labelledby="analysis-title">
+          <div class="page-heading"><div><h1 id="analysis-title">基金数据分析</h1></div></div>
+          <article class="panel analysis-picker"><label for="analysis-fund">分析对象</label><select id="analysis-fund"></select><span class="helper">一次分析一只基金</span></article>
+          <div class="tools-grid" id="analysis-tools"><article class="panel tool-card"><span class="tool-icon" aria-hidden="true">↗</span><h2>溢价率分析</h2><p>查看溢价率走势、历史分位与近 N 日平均溢价率。</p><div class="tags"><span>交互时序图</span><span>自定义比较</span><span>区间切换</span></div><button class="primary" id="open-premium" disabled>进入溢价率分析</button></article></div>
+          <article id="analysis-view" class="panel analysis-view" hidden aria-label="溢价率分析结果">
+            <div class="panel-heading analysis-heading"><h2 id="analysis-chart-title">溢价率时序</h2><div class="button-row"><button class="secondary" id="reload-premium">重新加载</button><button class="text-button" id="analysis-back">返回分析工具</button></div></div>
+            <p id="analysis-status" role="status" aria-live="polite"></p>
+            <div class="history-error" id="analysis-error" hidden role="alert"></div>
+            <div id="analysis-frame-host"></div>
+          </article>
+        </section>
+        <div id="load-error" class="inline-note" hidden role="alert"></div>
+        <footer class="content-footer"><span>概况读取时间 · <span id="snapshot-time"></span></span></footer>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

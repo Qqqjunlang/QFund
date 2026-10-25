@@ -1,0 +1,29 @@
+.venv/
+.local/
+data/
+backups/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+build/
+dist/
+
+# 本机开发历史，公开资料按 docs/public-files.md 审阅
+docs/archive/
+
+# 编辑器、系统及可能包含私人信息的临时文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.key
+*.pem
+*.pfx
+*.p12

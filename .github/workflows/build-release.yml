@@ -1,0 +1,61 @@
+name: Build release candidates
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.12'
+      - name: Prepare source environment
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+          .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
+          .\.venv\Scripts\python.exe scripts/check_public_files.py
+          .\.venv\Scripts\python.exe scripts/run_public_tests.py
+      - name: Build source and wheel
+        run: |
+          .\.venv\Scripts\python.exe scripts/build_source_archive.py --output-dir dist/release-source
+          .\.venv\Scripts\python.exe -m pip wheel --no-cache-dir --no-build-isolation --no-deps --wheel-dir dist/release-wheel .
+      - name: Prepare isolated EXE build environment
+        run: |
+          python -m venv .local/build-venv
+          .\.local\build-venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+          .\.local\build-venv\Scripts\python.exe -m pip install -r packaging/windows/requirements-build.txt
+          .\.local\build-venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
+      - name: Build EXE with license bundle
+        run: .\.local\build-venv\Scripts\python.exe scripts/build_exe.py --output-dir dist/release-program
+      - name: Prepare verified portable Inno Setup compiler
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732') { throw 'Compiler SHA256 mismatch' }
+          if ((Get-AuthenticodeSignature -LiteralPath $archive).Status -ne 'Valid') { throw 'Compiler signature invalid' }
+          $destination = Join-Path $env:RUNNER_TEMP 'qfund-inno'
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/NOICONS', '/TASKS=', '/PORTABLE=1', ('/DIR="' + $destination + '"'))
+          $process = Start-Process -FilePath $archive -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Compiler extraction failed' }
+          "QFUND_ISCC=$destination\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build installer and review assets
+        run: |
+          .\.venv\Scripts\python.exe scripts/build_installer.py --program-dir dist/release-program/QFund --output-dir dist/release-installer --compiler "$env:QFUND_ISCC"
+          .\.venv\Scripts\python.exe scripts/prepare_release_assets.py --source-dir dist/release-source --installer-dir dist/release-installer --wheel-dir dist/release-wheel --output-dir dist/release-assets
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: QFund-release-candidates
+          path: dist/release-assets/*
+          if-no-files-found: error
+          retention-days: 14

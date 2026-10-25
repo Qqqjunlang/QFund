@@ -1,0 +1,37 @@
+name: Windows public checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-checks:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+          .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
+          .\.venv\Scripts\python.exe -m pip check
+      - name: Check public file scope
+        run: .\.venv\Scripts\python.exe scripts/check_public_files.py
+      - name: Run public offline tests
+        run: .\.venv\Scripts\python.exe scripts/run_public_tests.py
+      - name: Build wheel from public source
+        run: .\.venv\Scripts\python.exe -m pip wheel --no-cache-dir --no-build-isolation --no-deps --wheel-dir build/wheel .

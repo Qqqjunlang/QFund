@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "root_files": [
+    ".gitattributes", ".gitignore", "README.md", "使用说明.md", "AGENTS.md",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "SUPPORT.md",
+    "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "pyproject.toml",
+    "requirements.lock.txt", "启动工作台.cmd", "安装环境.cmd"
+  ],
+  "trees": {
+    "src": [".py", ".html", ".css", ".js", ".svg", ".json", ".ps1"],
+    "tests": [".py"],
+    "scripts": [".py", ".cmd"],
+    "packaging": [".json", ".spec", ".txt", ".iss", ".isl", ".ico"],
+    ".github": [".yml", ".yaml", ".md"]
+  },
+  "docs": [
+    "development.md", "extensibility.md", "installation.md", "installation-acceptance.md",
+    "exe-prototype.md", "exe-automatic-updates.md", "windows-installer.md",
+    "installed-use-acceptance.md", "maintenance-guide.md", "trading-calendar-maintenance.md",
+    "public-files.md", "releasing.md", "github-preparation.md", "release-notes.md"
+  ]
+}
