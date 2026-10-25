@@ -5,7 +5,7 @@
   #error OutputDir is required.
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef InstallId
   #define InstallId "QFund.Desktop"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fundlab-local"
-version = "0.3.0"
+version = "1.0.0"
 description = "QFund 本地基金数据工具：采集、保存、导出与溢价分析"
 readme = "README.md"
 license = "MIT"

@@ -1,14 +1,14 @@
-# QFund v0.3.0 — Release草稿
+# QFund v1.0.0 — Release草稿
 
-本文件供首次GitHub Release审阅，尚未发布；发布时使用对应源码提交创建v0.3.0标签，并填写实际发布日期。
+本文件供首次GitHub Release审阅，尚未发布；发布时使用对应源码提交创建v1.0.0标签，并填写实际发布日期。
 
 ## 下载与安装
 
-普通使用者下载QFund-Setup-0.3.0.exe；需要Windows 10/11 x64和Microsoft Edge，无需另装Python。双击按向导安装，从开始菜单或桌面图标打开。
+普通使用者下载QFund-Setup-1.0.0.exe；需要Windows 10/11 x64和Microsoft Edge，无需另装Python。双击按向导安装，从开始菜单或桌面图标打开。
 
 默认程序在当前用户LOCALAPPDATA/Programs/QFund，数据在LOCALAPPDATA/QFund。第一次获取前由本人在专用Edge登录。软件仍通过浏览器操作，任务结束后可在运行窗口按Ctrl+C停止。
 
-源码使用者下载QFund-0.3.0-source.zip或GitHub的Source code，按README中的Python 3.12源码路线运行。wheel供技术使用，不是Windows安装程序。
+源码使用者下载QFund-1.0.0-source.zip或GitHub的Source code，按README中的Python 3.12源码路线运行。wheel供技术使用，不是Windows安装程序。
 
 ## 包含功能
 

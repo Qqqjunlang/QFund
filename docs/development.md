@@ -60,10 +60,10 @@ Windows目录式EXE通过scripts/build_exe.py和packaging/windows/qfund.spec构�
 
 包配置在pyproject.toml，生产资源包括图表JS、网页HTML/CSS/JS/SVG、日历JSON和任务PS1。后续打包应检查这些文件确实进入产物，并验证新包与本次源码版本一致。
 
-当前分发名为fundlab-local，内部版本为0.3.0，尚未确定首次公开发布版本。原有dist包含历史同版本不同批次产物，不纳入仓库，也不作为新发布。公开发布前需要新版本、内容清单及SHA256；wheel不包含根目录CMD和虚拟环境，不是Windows安装器。
+当前分发名为fundlab-local，首次公开版本为1.0.0，对应Git标签v1.0.0，尚未正式发布。原有dist包含历史0.3.0不同批次产物，保留原件，不纳入仓库；1.0.0须重新构建并核对内容清单及SHA256。wheel不包含根目录CMD和虚拟环境，不是Windows安装器。
 
 维护备份脚本有自己的资料白名单，目录或资源变化时要检查它的覆盖情况。目前源码备份后缀集合尚未包含SVG，根文件清单也未包含新增的安装环境.cmd；新增packaging资源也需核对。本轮未修复备份代码，不宣称备份包含全部新增构建材料。该脚本按源码任务入口设计，不将其直接作为安装版维护入口；适配另行验证。
 
 ## 持续维护
 
-修改模块边界、数据结构或可变规则前阅读[持续改进约定](extensibility.md)。公共文件审查见[公开文件清单](public-files.md)。项目MIT署名Qqqjunlang，远端地址及正式发布尚待执行，不臆造仓库或CI通过状态。发布材料见[发布流程](releasing.md)。
+修改模块边界、数据结构或可变规则前阅读[持续改进约定](extensibility.md)。公共文件审查见[公开文件清单](public-files.md)。项目MIT署名Qqqjunlang，源码仓库为[Qqqjunlang/QFund](https://github.com/Qqqjunlang/QFund)，Release仍在准备中；CI是否通过以实际运行记录为准。发布材料见[发布流程](releasing.md)。

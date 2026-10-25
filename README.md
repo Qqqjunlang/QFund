@@ -8,11 +8,11 @@ Windows本地基金数据工具：从集思录获取基金近期数据，持续�
 
 ### 普通使用者：Windows安装版
 
-1. 在本仓库的 **Releases** 下载 `QFund-Setup-版本.exe`。
+1. 在本仓库的 **Releases** 下载 `QFund-Setup-1.0.0.exe`。
 2. 双击安装，按向导完成；从开始菜单或所选桌面快捷方式打开QFund。
 3. 浏览器打开后，按下文完成首次使用。
 
-需要 **Windows 10/11 x64和Microsoft Edge**，无需另装Python。当前是首次发布准备，尚未创建远端Release；不要把GitHub的“Source code”ZIP当作安装EXE。具体位置、升级和卸载见[Windows安装说明](docs/windows-installer.md)。
+需要 **Windows 10/11 x64和Microsoft Edge**，无需另装Python。当前准备首次公开版本 **1.0.0**（标签`v1.0.0`），尚未正式发布Release；不要把GitHub的“Source code”ZIP当作安装EXE。具体位置、升级和卸载见[Windows安装说明](docs/windows-installer.md)。
 
 ### 开发者：源码运行
 

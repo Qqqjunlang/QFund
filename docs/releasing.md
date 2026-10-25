@@ -1,6 +1,6 @@
 # GitHub发布流程
 
-GitHub没有唯一强制的目录格式。本项目采用其社区文件位置、Git标签和Releases附件约定；版本从pyproject.toml读取，当前为0.3.0，计划对应标签v0.3.0。尚未创建远端仓库、标签或Release。
+GitHub没有唯一强制的目录格式。本项目采用其社区文件位置、Git标签和Releases附件约定；版本从pyproject.toml读取，当前为1.0.0，对应标签v1.0.0。源码仓库已建立为[Qqqjunlang/QFund](https://github.com/Qqqjunlang/QFund)，Release尚未正式发布。
 
 ## 仓库和下载附件
 
@@ -30,6 +30,6 @@ data、.local、backups、虚拟环境、构建目录和历史资料均不进入
 4. 在最终提交创建v版本标签，以该标签建立Release草稿。附件建议为QFund-Setup-版本.exe、QFund-版本-source.zip、wheel、SHA256SUMS.txt和文件清单。
 5. 检查草稿里的安装条件、数据位置、升级/卸载、当前日历覆盖、未签名状态及实际验证范围，再由维护者发布。首次可按实际成熟度标记Pre-release。
 
-创建仓库、上传代码、创建标签与发布Release另行执行；本地整理不自动向外发送文件。CI不携带登录资料，不自动登录源站或真实采集。自动依赖更新只提交建议，不自动合并或发布。
+源码上传、标签、Release草稿与正式发布分别核对状态；本地整理不自动向外发送文件。CI不携带登录资料，不自动登录源站或真实采集。自动依赖更新只提交建议，不自动合并或发布。
 
 依据：[GitHub社区文件](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/about-community-profiles-for-public-repositories)、[Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)、[Actions安全](https://docs.github.com/en/actions/reference/security/secure-use)。

@@ -9,7 +9,7 @@ body:
     id: version
     attributes:
       label: QFund版本与安装方式
-      placeholder: 例如0.3.0，EXE安装版或源码版
+      placeholder: 例如1.0.0，EXE安装版或源码版
     validations:
       required: true
   - type: input
