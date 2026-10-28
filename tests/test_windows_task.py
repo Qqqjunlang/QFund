@@ -23,7 +23,8 @@ class WindowsTaskTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.config = AppConfig(Path(self.temp.name))
+        # worker和任务身份都使用规范路径，临时目录可能返回8.3短名。
+        self.config = AppConfig(Path(self.temp.name).resolve())
         self.task = WindowsTask(self.config, interpreter=Path(__file__))
         self.missing = {'installed':False, 'sid':'S-1-test'}
 

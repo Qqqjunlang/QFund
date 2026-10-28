@@ -28,7 +28,8 @@ class FrozenRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='QFund EXE 测试 ')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Windows临时目录可能含8.3短名；入口会resolve，预期也使用规范路径。
+        self.root = Path(self.temp.name).resolve()
 
     def test_source_root_remains_project_even_with_localappdata(self):
         with patch.object(sys, 'frozen', False, create=True), patch.dict(os.environ, LOCALAPPDATA=str(self.root)):

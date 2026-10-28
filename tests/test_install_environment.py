@@ -20,7 +20,8 @@ class InstallEnvironmentTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="QFund 安装测试 ")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # 与安装入口一致，展开Windows临时目录中的8.3短名。
+        self.root = Path(self.temp.name).resolve()
         for name in ("pyproject.toml", "requirements.lock.txt", "src/fundlab/__init__.py", "启动工作台.cmd"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
