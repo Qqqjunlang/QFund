@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 from threading import Thread
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -17,7 +18,7 @@ from fundlab.models import Fund
 from fundlab.config import AppConfig
 from fundlab.presentation import browser_compat_script
 from fundlab.web.premium import chart_policy
-from fundlab.web.server import make_server
+from fundlab.web.server import ASSETS, make_server
 
 
 class Scripts(HTMLParser):
@@ -42,6 +43,19 @@ class Scripts(HTMLParser):
 
 class BrowserResourceTests(unittest.TestCase):
     def test_host_serves_compat_before_consumers_with_static_boundary(self):
+        # Git's Windows checkout can use CRLF for JS; inline read_text uses LF.
+        # Exercise both independently of the developer's checkout settings.
+        script = browser_compat_script().replace('\r\n', '\n').replace('\r', '\n')
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory)
+            (assets / 'index.html').write_bytes((ASSETS / 'index.html').read_bytes())
+            for newline in ('\n', '\r\n'):
+                expected = script.replace('\n', newline).encode('utf-8')
+                (assets / 'browser_compat.js').write_bytes(expected)
+                with self.subTest(newline=repr(newline)), patch('fundlab.web.server.ASSETS', assets):
+                    self._assert_host_compat_static_boundary(expected)
+
+    def _assert_host_compat_static_boundary(self, expected):
         with tempfile.TemporaryDirectory() as directory:
             with make_server(AppConfig(Path(directory)), 0) as server:
                 thread = Thread(target=server.serve_forever, daemon=True)
@@ -54,7 +68,10 @@ class BrowserResourceTests(unittest.TestCase):
                     self.assertLess(host.index('browser_compat.js'), host.index('management.js'))
                     self.assertLess(host.index('browser_compat.js'), host.index('app.js'))
                     with urlopen(base + '/browser_compat.js') as response:
-                        self.assertEqual(response.read().decode('utf-8'), browser_compat_script())
+                        served = response.read()
+                        self.assertEqual(served, expected)
+                        self.assertEqual(served.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'),
+                                         browser_compat_script().replace('\r\n', '\n').replace('\r', '\n'))
                         self.assertIn('javascript', response.headers['Content-Type'])
                     for path in ('/static/browser_compat.js', '/presentation.py'):
                         with self.assertRaises(HTTPError) as caught:
@@ -84,3 +101,4 @@ class BrowserResourceTests(unittest.TestCase):
                 self.assertIn("'sha256-" + digest + "'", script_policy)
             self.assertNotIn('unsafe-inline', script_policy)
             self.assertNotIn('unsafe-eval', script_policy)
+
