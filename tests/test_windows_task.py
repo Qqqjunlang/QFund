@@ -88,7 +88,7 @@ class WindowsTaskTests(unittest.TestCase):
     def test_transport_conflict_never_silently_overwrites_existing_task(self):
         from fundlab.scheduling.windows_task import transport
         from types import SimpleNamespace
-        reply=SimpleNamespace(returncode=1,stdout=json.dumps({'ok':False,'error':'TASK_OWNERSHIP_CONFLICT','hresult':0}))
+        reply=SimpleNamespace(returncode=1,stdout=json.dumps({'ok':False,'error':'TASK_OWNERSHIP_CONFLICT','hresult':0}).encode())
         with patch('fundlab.scheduling.windows_task.subprocess.run',return_value=reply) as run,self.assertRaises(FundlabError) as caught:
             transport({'operation':'query','name':'test'})
         self.assertEqual(caught.exception.code,'WINDOWS_TASK_CONFLICT')
@@ -98,9 +98,44 @@ class WindowsTaskTests(unittest.TestCase):
     def test_transport_timeout_is_unconfirmed_and_does_not_repeat_mutation(self):
         from fundlab.scheduling.windows_task import transport
         import subprocess
-        with patch('fundlab.scheduling.windows_task.subprocess.run',side_effect=subprocess.TimeoutExpired('test',30)) as run,self.assertRaises(FundlabError):
+        with patch('fundlab.scheduling.windows_task.subprocess.run',side_effect=subprocess.TimeoutExpired('test',30)) as run,self.assertRaises(FundlabError) as caught:
             transport({'operation':'register','name':'test'})
+        self.assertEqual(caught.exception.code, 'WINDOWS_TASK_TIMEOUT')
         self.assertEqual(run.call_count,1)
+
+    def test_transport_distinguishes_failures_without_exposing_raw_details(self):
+        from fundlab.scheduling.windows_task import transport
+        from types import SimpleNamespace
+        cases = [
+            (1, b'', b'\xff PSSecurityException private-path', 'WINDOWS_TASK_POLICY'),
+            (1, b'', b'SecurityError ParentContainsErrorRecordException LinkID=135170 UnauthorizedAccess',
+             'WINDOWS_TASK_POLICY'),
+            (1, b'{"ok":false,"hresult":-2147024891,"phase":"service"}', b'', 'WINDOWS_TASK_PERMISSION'),
+            (1, b'{"ok":false,"hresult":2147750677}', b'', 'WINDOWS_TASK_SERVICE'),
+            (1, b'{"ok":false,"error":"private-path","hresult":"private-path"}', b'', 'WINDOWS_TASK_FAILED'),
+            (0, b'[]', b'', 'WINDOWS_TASK_PROTOCOL'),
+            (0, b'{"ok":true,"installed":false}', b'', 'WINDOWS_TASK_PROTOCOL'),
+            (0, b'{"ok":true,"installed":"false","sid":"S-1"}', b'', 'WINDOWS_TASK_PROTOCOL'),
+            (1, b'{"ok":true,"installed":false,"sid":"S-1"}', b'', 'WINDOWS_TASK_PROTOCOL'),
+        ]
+        for returncode, stdout, stderr, code in cases:
+            reply = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+            with self.subTest(code=code, stdout=stdout), patch(
+                'fundlab.scheduling.windows_task.subprocess.run', return_value=reply
+            ) as run, self.assertRaises(FundlabError) as caught:
+                transport({'operation': 'remove', 'name': 'test'})
+            self.assertEqual(caught.exception.code, code)
+            self.assertNotIn('private-path', str(caught.exception))
+            run.assert_called_once()
+
+    def test_powershell_startup_errors_are_not_task_absence(self):
+        from fundlab.scheduling.windows_task import transport
+        for error, code in ((PermissionError(), 'WINDOWS_TASK_PERMISSION'),
+                            (FileNotFoundError(), 'WINDOWS_TASK_START_FAILED')):
+            with self.subTest(code=code), patch('fundlab.scheduling.windows_task.subprocess.run',
+                    side_effect=error), self.assertRaises(FundlabError) as caught:
+                transport({'operation': 'query', 'name': 'test'})
+            self.assertEqual(caught.exception.code, code)
 
     def test_cli_exposes_explicit_task_management(self):
         from fundlab.cli import main

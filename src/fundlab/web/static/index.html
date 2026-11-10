@@ -6,6 +6,8 @@
   <title>QFund · 基金数据工作台</title>
   <link rel="icon" type="image/svg+xml" href="qfund-icon.svg">
   <link rel="stylesheet" href="style.css">
+  <script src="browser_compat.js" defer></script>
+  <script src="management.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -17,6 +19,7 @@
         <button data-page="home"><span class="nav-icon" aria-hidden="true">⌂</span>首页</button>
         <button data-page="collect"><span class="nav-icon" aria-hidden="true">↓</span>数据获取</button>
         <button data-page="data"><span class="nav-icon" aria-hidden="true">▤</span>数据查询</button>
+        <button data-page="manage"><span class="nav-icon" aria-hidden="true">⚙</span>数据管理</button>
         <button data-page="analysis"><span class="nav-icon" aria-hidden="true">↗</span>数据分析</button>
       </nav>
       <div class="sidebar-footer"><span class="local-dot"></span> 本机运行<span class="footer-note">数据保存在你的电脑中</span></div>
@@ -39,7 +42,7 @@
         <section id="page-collect" class="page" hidden aria-labelledby="collect-title">
           <div class="page-heading"><div><h1 id="collect-title">获取基金数据</h1><p>一次获取一只基金，已有基金继续累积更新。</p></div></div>
           <article class="panel form-panel"><div class="collect-heading"><h2>查找基金</h2><button type="button" class="secondary" id="collect-login">专用 Edge 登录</button></div><form id="collect-search-form"><label for="fund-query">基金代码或名称</label><div class="input-row"><input id="fund-query" placeholder="例如：159501 或 纳指ETF嘉实" autocomplete="off" maxlength="100" required><button type="submit" class="primary" id="collect-search">查找基金</button></div></form><p class="helper">名称匹配多只基金时，先选择目标基金，再开始获取。登录失效时请点击右上方的登录按钮。</p><div class="history-error" id="collect-error" hidden role="alert"></div></article>
-          <article class="panel collect-local" aria-labelledby="collect-local-title"><div class="panel-heading"><div><h2 id="collect-local-title">已有数据 <span class="count-badge" id="collect-local-count">—</span></h2><p id="collect-local-status" role="status" aria-live="polite">正在读取本地数据…</p></div><button type="button" class="secondary" id="collect-refresh-data">刷新已有数据</button></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>记录数</th><th>数据区间</th><th class="action-col">操作</th></tr></thead><tbody id="collect-funds"></tbody></table></div></article>
+          <article class="panel collect-local" aria-labelledby="collect-local-title"><div class="panel-heading"><div><h2 id="collect-local-title">已有数据 <span class="count-badge" id="collect-local-count">—</span></h2><p id="collect-local-status" role="status" aria-live="polite">正在读取本地数据…</p></div><div class="button-row collect-group-controls"><label for="collect-group-filter">自选分组</label><select id="collect-group-filter"><option value="">全部分组</option></select><button type="button" class="secondary" id="collect-refresh-data">刷新已有数据</button></div></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>记录数</th><th>数据区间</th><th class="action-col">操作</th></tr></thead><tbody id="collect-funds"></tbody></table></div></article>
           <article class="panel" id="collect-candidates" hidden><div class="panel-heading"><div><h2>确认要获取的基金</h2><p id="candidate-note"></p></div><button class="primary" id="collect-start" disabled>获取所选基金数据</button></div><div class="table-scroll"><table><thead><tr><th>选择</th><th>代码</th><th>基金名称</th><th>类别</th></tr></thead><tbody id="candidate-body"></tbody></table></div></article>
           <article class="panel collect-task"><div class="panel-heading"><div><h2>任务状态 <span class="job-badge" id="collect-task-badge">尚未执行</span></h2><p id="collect-task-message" role="status" aria-live="polite">查找基金后，确认并开始获取。</p></div><div class="button-row"><button type="button" class="secondary" id="collect-refresh">刷新任务状态</button><button type="button" class="secondary" id="collect-cancel" hidden>取消登录</button></div></div><div class="collect-task-detail" id="collect-task-detail"></div><div class="collect-result-actions" id="collect-result-actions" hidden><button class="secondary" id="collect-view">查看数据</button><button class="primary" id="collect-analyze">分析这只基金 →</button><button class="secondary" id="collect-export" hidden>仅重试导出</button><button class="secondary" id="collect-again" hidden>重新获取这只基金</button></div></article>
           <article class="panel watchlist-panel" aria-labelledby="watchlist-title">
@@ -65,6 +68,7 @@
         </section>
         <section id="page-data" class="page" hidden aria-labelledby="data-title">
           <div class="page-heading"><div><h1 id="data-title">本地基金数据</h1></div><button class="primary" data-go="collect">获取基金数据 ↗</button></div>
+          <div class="management-filter"><label for="group-filter">按分组查看</label><select id="group-filter"><option value="">全部分组</option></select></div>
           <article class="panel"><div class="panel-heading"><h2>已有基金 <span class="count-badge" id="list-count"></span></h2><div class="button-row"><input class="filter-input" id="filter" aria-label="筛选本地基金" placeholder="按代码或名称筛选"><button class="secondary" id="refresh-data">刷新列表</button></div></div><div class="table-scroll"><table><thead><tr><th>基金</th><th>类别</th><th>记录数</th><th>数据区间</th><th>最近更新</th><th class="action-col">操作</th></tr></thead><tbody id="data-funds"></tbody></table></div></article>
           <article class="panel" id="history-panel">
             <div class="panel-heading"><div><h2 id="selected-data">请选择基金</h2><p id="history-meta"></p></div><button class="secondary" id="analyze-selected">分析这只基金 →</button></div>
@@ -76,12 +80,55 @@
             <div class="pagination"><span id="page-info">每页 50 条 · 价格日期从新到旧</span><div class="button-row"><button class="secondary" id="prev-page" disabled>上一页</button><button class="secondary" id="next-page" disabled>下一页</button></div></div>
           </article>
         </section>
+        <section id="page-manage" class="page" hidden aria-labelledby="manage-title">
+          <div class="page-heading"><div><h1 id="manage-title">数据管理</h1><p>导入文件、整理分组，维护本地基金记录。</p></div></div>
+          <div class="management-tools">
+            <article class="panel management-card"><span class="tool-icon" aria-hidden="true">↓</span><h2>导入数据</h2><p>从 Excel 或 CSV 导入一只基金，预览确认后保存。</p><button class="primary" id="open-import">导入 Excel／CSV</button></article>
+            <article class="panel management-card"><span class="tool-icon" aria-hidden="true">▦</span><h2>自选分组</h2><p>创建分组、调整名称，管理各组的基金成员。</p><button class="secondary" id="open-groups">管理分组</button></article>
+            <article class="panel management-card"><span class="tool-icon" aria-hidden="true">↶</span><h2>基金回收站</h2><p>查看已回收的基金，按需恢复本地行情。</p><button class="secondary" id="open-trash">打开回收站</button></article>
+          </div>
+          <p class="inline-note" id="management-feedback" hidden role="status" aria-live="polite"></p>
+          <article class="panel" aria-labelledby="manage-funds-title">
+            <div class="panel-heading"><div><h2 id="manage-funds-title">基金数据维护</h2><p>选择基金后，可编辑、新增记录或移入回收站。</p></div><div class="button-row"><input class="filter-input" id="manage-filter" aria-label="筛选管理基金" placeholder="按代码或名称筛选"><button class="secondary" id="refresh-management">刷新列表</button></div></div>
+            <div class="table-scroll"><table><thead><tr><th>基金</th><th>记录数</th><th>数据区间</th><th>自选分组</th><th class="action-col">操作</th></tr></thead><tbody id="manage-funds"></tbody></table></div>
+          </article>
+        </section>
         <section id="page-analysis" class="page" hidden aria-labelledby="analysis-title">
           <div class="page-heading"><div><h1 id="analysis-title">基金数据分析</h1></div></div>
-          <article class="panel analysis-picker"><label for="analysis-fund">分析对象</label><select id="analysis-fund"></select><span class="helper">一次分析一只基金</span></article>
-          <div class="tools-grid" id="analysis-tools"><article class="panel tool-card"><span class="tool-icon" aria-hidden="true">↗</span><h2>溢价率分析</h2><p>查看溢价率走势、历史分位与近 N 日平均溢价率。</p><div class="tags"><span>交互时序图</span><span>自定义比较</span><span>区间切换</span></div><button class="primary" id="open-premium" disabled>进入溢价率分析</button></article></div>
-          <article id="analysis-view" class="panel analysis-view" hidden aria-label="溢价率分析结果">
+          <article class="panel analysis-picker"><div class="analysis-choice"><label for="analysis-group-filter">自选分组</label><select id="analysis-group-filter"><option value="">全部分组</option></select></div><div class="analysis-choice"><label for="analysis-fund">分析对象</label><select id="analysis-fund"></select></div><span class="helper">一次分析一只基金</span></article>
+          <div class="tools-grid" id="analysis-tools">
+            <article class="panel tool-card"><span class="tool-icon" aria-hidden="true">↗</span><h2>溢价率分析</h2><p>查看溢价率走势、历史分位与近 N 日平均溢价率。</p><div class="tags"><span>交互时序图</span><span>自定义比较</span><span>区间切换</span></div><button class="primary" id="open-premium" disabled>进入溢价率分析</button></article>
+            <article class="panel tool-card"><span class="tool-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M3 4v17h18"/><path d="m6 15 4-6 4 4 6-8"/></svg></span><h2>价格走势分析</h2><p>查看本地收盘价和自定义周期均线。</p><div class="tags"><span>收盘价</span><span>可调周期</span><span>日期筛选</span></div><button class="primary" id="open-price" disabled>进入价格走势分析</button></article>
+          </div>
+          <article id="analysis-view" class="panel analysis-view" hidden aria-labelledby="analysis-chart-title">
             <div class="panel-heading analysis-heading"><h2 id="analysis-chart-title">溢价率时序</h2><div class="button-row"><button class="secondary" id="reload-premium">重新加载</button><button class="text-button" id="analysis-back">返回分析工具</button></div></div>
+            <div id="price-overview" class="price-overview" hidden aria-label="收盘价概览">
+              <div><span class="helper">最新有效收盘价</span><strong class="price-number" id="price-latest">—</strong><span class="helper" id="price-latest-date">对应价格日期：—</span></div>
+              <div><span class="helper">本地已保存行情</span><strong class="price-number" id="price-records">—</strong><span class="helper" id="price-stored-range">—</span></div>
+              <div class="price-rank-panel"><div class="price-rank-heading"><span id="price-rank-title">当前价格的区间历史分位</span><span class="schedule-help"><button type="button" class="help-button" aria-label="价格历史分位说明" aria-describedby="price-rank-help">?</button><span class="schedule-tooltip" id="price-rank-help" role="tooltip">按所选日期区间内“小于等于目标价格”的有效收盘价占比计算。</span></span></div>
+                <strong class="price-number" id="price-rank" role="status" aria-live="polite">—</strong>
+                <form id="price-rank-form" class="price-rank-form"><label for="price-comparison">收盘价</label><input id="price-comparison" type="text" inputmode="decimal" placeholder="例如 1.995" maxlength="100"><button class="secondary" type="submit">计算分位</button><button class="secondary" type="button" id="price-rank-reset">恢复当前价格</button></form>
+                <p id="price-rank-status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div id="price-controls" class="price-controls" hidden>
+              <div class="price-range-bar">
+                <div class="price-range-buttons" role="group" aria-label="价格分析区间"><span>分析区间</span>
+                  <button class="secondary" type="button" data-price-months="1">近1个月</button>
+                  <button class="secondary" type="button" data-price-months="3">近3个月</button>
+                  <button class="secondary" type="button" data-price-months="6">近6个月</button>
+                  <button class="secondary" type="button" data-price-months="12">近1年</button>
+                  <button class="secondary active" id="price-reset" type="button">全部</button>
+                </div>
+                <button class="secondary" id="price-customize" type="button" aria-expanded="false" aria-controls="price-settings">自定义 ▾</button>
+              </div>
+              <form id="price-settings" class="price-settings" hidden>
+                <div><label for="price-start">开始日期</label><input id="price-start" type="date"></div>
+                <div><label for="price-end">结束日期</label><input id="price-end" type="date"></div>
+                <div><label for="price-periods">均线周期</label><input id="price-periods" type="text" placeholder="留空默认 5 日" maxlength="40"></div>
+                <button class="primary" type="submit">应用</button>
+              </form>
+            </div>
             <p id="analysis-status" role="status" aria-live="polite"></p>
             <div class="history-error" id="analysis-error" hidden role="alert"></div>
             <div id="analysis-frame-host"></div>
@@ -92,5 +139,10 @@
       </div>
     </main>
   </div>
+  <dialog class="management-dialog" id="management-dialog" aria-labelledby="management-title">
+    <div class="management-heading"><h2 id="management-title"></h2><button type="button" class="secondary" id="close-management">关闭</button></div>
+    <p id="management-message" role="status" aria-live="polite" hidden></p>
+    <div id="management-body"></div>
+  </dialog>
 </body>
 </html>

@@ -179,6 +179,13 @@ def _run_locked(config, now, retry_failed, clock):
             outcome = worker(config, job["code"], trigger="scheduled:" + job["slot"], run_id=job["run_id"])
             raw = outcome.to_dict()
         except FundlabError as error:
+            if error.code == 'FUND_TRASHED':
+                job[counter] -= 1  # 获取项目锁后发现已回收，尚未启动采集，不消耗尝试。
+                job.update(status='skipped', error_code=error.code, retry_at=None,
+                           message=str(error), updated_at=clock().isoformat())
+                store.save(job)
+                results.append(job)
+                continue
             if error.code in BUSY:
                 raw = {"status": "failed", "error_code": error.code, "message": str(error)}
             else:

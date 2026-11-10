@@ -14,19 +14,24 @@ from fundlab.collectors.session import ProfileLock
 from fundlab.errors import FundlabError
 from fundlab.presentation import APP_NAME, typography_css
 from fundlab.services.data_query import download_history, history_page, overview
+from fundlab.services.analysis import price_summary
 from fundlab.services.watchlist import WatchlistService
 from fundlab.scheduling.runner import schedule_status
 from fundlab.scheduling.settings import ScheduleSettings
 from fundlab.web.premium import chart_document, chart_policy, error_document
 from fundlab.web.tasks import TaskManager
 from fundlab.web.identity import service_identity
+from fundlab.web.management import ManagementRoutes, POST_FIELDS, PREVIEW_PATH, PREVIEW_BODY_LIMIT
 
 ASSETS = Path(__file__).with_name("static")
+CHART_PARAMS = {"/analysis/premium": {"code"}, "/analysis/price": {"code", "periods", "start", "end"}}
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/index.html": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/qfund-icon.svg": ("qfund-icon.svg", "image/svg+xml"),
-          "/app.js": ("app.js", "text/javascript; charset=utf-8")}
+          "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/management.js": ("management.js", "text/javascript; charset=utf-8"),
+          "/browser_compat.js": ("browser_compat.js", "text/javascript; charset=utf-8")}
 
 
 class LocalHTTPServer(ThreadingHTTPServer):
@@ -52,6 +57,7 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
     csrf_token = secrets.token_urlsafe(32)
     tasks = None
     watchlist = WatchlistService(config)
+    management = ManagementRoutes(config)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "FundlabLocal"
@@ -114,15 +120,27 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
                     self.json_reply(200, tasks.state())
                     return
                 params = parse_qs(url.query, keep_blank_values=True, max_num_fields=10)
+                managed = management.get(url.path, params)
+                if managed is not None:
+                    self.json_reply(200, managed)
+                    return
                 get = lambda key: params.get(key, [""])[0]
-                allowed = ({"id"} if url.path == "/api/task" else {"code"} if url.path == "/analysis/premium" else
+                if url.path == '/api/price-summary':
+                    if set(params) - {'code', 'start', 'end', 'price'} or any(len(v) != 1 for v in params.values()):
+                        raise FundlabError('VALIDATION_ERROR', '查询参数不正确。')
+                    self.json_reply(200, price_summary(config, get('code'), start=get('start'), end=get('end'),
+                                                       comparison_price=get('price') if 'price' in params else None))
+                    return
+                allowed = CHART_PARAMS.get(url.path, {"id"} if url.path == "/api/task" else
                            {"code", "start", "end", "page"} if url.path == "/api/history" else {"code", "start", "end", "format"})
                 if set(params) - allowed or any(len(v) != 1 for v in params.values()):
                     raise FundlabError("VALIDATION_ERROR", "查询参数不正确。")
                 if url.path == "/api/task":
                     self.json_reply(200, tasks.get(get("id")))
-                elif url.path == "/analysis/premium":
-                    self.chart_reply(200, chart_document(config, get("code")))
+                elif url.path in CHART_PARAMS:
+                    kind = url.path.rsplit("/", 1)[1]
+                    options = {key: get(key) for key in CHART_PARAMS[url.path] - {"code"}}
+                    self.chart_reply(200, chart_document(config, get("code"), kind=kind, **options))
                 elif url.path == "/api/history":
                     result = history_page(config, get("code"), get("start"), get("end"), int(get("page") or "1"))
                     self.json_reply(200, result)
@@ -134,9 +152,9 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
                 else:
                     self.json_reply(404, {"message": "页面或文件不存在。"})
             except FundlabError as error:
-                status = 404 if error.code in {"NO_DATA", "TASK_NOT_FOUND"} else 400 if error.code == "VALIDATION_ERROR" else 500
-                if url.path == "/analysis/premium":
-                    self.chart_reply(status, error_document(get("code"), str(error)))
+                status = 404 if error.code in {"NO_DATA", "TASK_NOT_FOUND"} else 409 if error.code == "FUND_TRASHED" else 400 if error.code == "VALIDATION_ERROR" else 500
+                if url.path in CHART_PARAMS:
+                    self.chart_reply(status, error_document(get("code"), str(error), kind=url.path.rsplit("/", 1)[1]))
                 else:
                     self.json_reply(status, {"code": error.code, "message": str(error)})
             except ValueError:
@@ -145,8 +163,8 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
                 pass
             except Exception:
                 message = "本地服务暂时无法完成请求，请重试；原有数据仍保留。"
-                if url.path == "/analysis/premium":
-                    self.chart_reply(500, error_document(get("code"), message))
+                if url.path in CHART_PARAMS:
+                    self.chart_reply(500, error_document(get("code"), message, kind=url.path.rsplit("/", 1)[1]))
                 else:
                     self.json_reply(500, {"message": message})
 
@@ -161,16 +179,23 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
                 self.json_reply(400, {"message": "请求须使用JSON格式。"})
                 return
             try:
+                url = urlsplit(self.path)
+                if url.query:
+                    raise ValueError()
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 4096:
+                limit = PREVIEW_BODY_LIMIT if url.path == PREVIEW_PATH else 262144 if url.path == "/api/groups/change" else 4096
+                if length > limit:
+                    self.json_reply(413, {"message": "提交内容超过允许大小。"})
+                    return
+                if length <= 0:
                     raise ValueError()
                 self.connection.settimeout(10)
                 data = json.loads(self.rfile.read(length))
                 if not isinstance(data, dict):
                     raise ValueError()
-                url = urlsplit(self.path)
-                if url.query:
-                    raise ValueError()
+                if url.path in POST_FIELDS:
+                    self.json_reply(200, management.post(url.path, data))
+                    return
                 if url.path == "/api/schedule/settings":
                     if set(data) != {"update_time"}:
                         raise ValueError()
@@ -202,13 +227,26 @@ def make_server(config: AppConfig, port: int = 8765) -> ThreadingHTTPServer:
                     self.json_reply(404, {"message": "操作不存在。"})
                     return
                 kind, keys = actions[url.path]
-                if set(data) != keys | {"request_id"}:
+                required = keys | {"request_id"}
+                optional = {"restore_from_trash"} if kind == "update" else set()
+                if not required <= data.keys() <= required | optional:
                     raise ValueError()
                 payload = {key: data[key] for key in keys}
+                if "restore_from_trash" in data:
+                    payload["restore_from_trash"] = data["restore_from_trash"]
                 job = tasks.submit(kind, payload, data["request_id"])
                 self.json_reply(202, job)
             except FundlabError as error:
-                status = 409 if error.code in {"TASK_BUSY", "REQUEST_CONFLICT", "SCHEDULE_BUSY"} else 404 if error.code == "TASK_NOT_FOUND" else 400 if error.code == "VALIDATION_ERROR" else 500
+                if error.code in {"TASK_BUSY", "REQUEST_CONFLICT", "SCHEDULE_BUSY", "UPDATE_BUSY",
+                                  "WATCHLIST_BUSY", "DATA_STALE", "PREVIEW_STALE", "FUND_TRASHED",
+                                  "FUND_STATE_CONFLICT", "GROUP_EXISTS", "DATE_EXISTS", "DATE_DELETED"}:
+                    status = 409
+                elif error.code in {"NO_DATA", "NO_GROUP", "TASK_NOT_FOUND"}:
+                    status = 404
+                elif error.code in {"VALIDATION_ERROR", "IMPORT_OPTIONS", "IMPORT_FILE_SIZE", "IMPORT_TYPE", "IMPORT_READ_FAILED"}:
+                    status = 400
+                else:
+                    status = 500
                 self.json_reply(status, {"code": error.code, "message": str(error)})
             except (ValueError, TypeError, UnicodeDecodeError):
                 self.json_reply(400, {"message": "提交参数不正确，请检查输入后重试。"})

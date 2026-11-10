@@ -7,7 +7,7 @@ import json
 
 from fundlab.config import AppConfig
 from fundlab.presentation import APP_NAME
-from fundlab.services.analysis import premium_chart_document
+from fundlab.services.analysis import premium_chart_document, price_chart_document
 
 
 class _Scripts(HTMLParser):
@@ -47,22 +47,27 @@ def _json(value) -> str:
     return json.dumps(value, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c")
 
 
-def chart_document(config: AppConfig, code: str) -> str:
-    document = premium_chart_document(config, code, embedded=True)
+def chart_document(config: AppConfig, code: str, *, kind='premium', **options) -> str:
+    if kind == 'price':
+        document = price_chart_document(config, code, **options)
+        ready = 'Array.isArray(graph.data)'
+    else:
+        document = premium_chart_document(config, code, embedded=True)
+        ready = 'window.lastPremiumAnalysis'
     bridge = """<script>
 (() => {
   const code = CODE_VALUE;
   let failed = false;
   function send(status, extra = {}) {
-    parent.postMessage({type:'fundlab-premium', code, status, ...extra}, '*');
+    parent.postMessage({type:TYPE_VALUE, code, status, ...extra}, '*');
   }
   function failure() { if (!failed) {failed=true;send('error',{message:'分析图加载失败，请点击“重新加载”重试。'});} }
   window.addEventListener('error', failure);
   window.addEventListener('unhandledrejection', failure);
   window.addEventListener('load', () => {
     const main = document.querySelector('main');
-    const graph = document.getElementById('premium-chart');
-    if (!main || !graph || !window.lastPremiumAnalysis) {failure();return;}
+    const graph = document.getElementById(GRAPH_VALUE);
+    if (!main || !graph || !READY_VALUE) {failure();return;}
     let previous = 0;
     const resize = () => {
       const height = Math.ceil(main.getBoundingClientRect().height + 12);
@@ -81,11 +86,12 @@ def chart_document(config: AppConfig, code: str) -> str:
     resize();
   });
 })();
-</script>""".replace("CODE_VALUE", _json(code))
+</script>""".replace("CODE_VALUE", _json(code)).replace("TYPE_VALUE", _json('fundlab-' + kind)).replace(
+        "GRAPH_VALUE", _json(kind + '-chart')).replace("READY_VALUE", ready)
     return document.replace("</head>", bridge + "</head>", 1)
 
 
-def error_document(code: str, message: str) -> str:
-    event = _json({"type": "fundlab-premium", "code": code, "status": "error", "message": message})
+def error_document(code: str, message: str, *, kind='premium') -> str:
+    event = _json({"type": "fundlab-" + kind, "code": code, "status": "error", "message": message})
     return (f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>{escape(APP_NAME)} · 分析暂不可用</title>"
             f"<body><p>{escape(message)}</p><script>parent.postMessage({event}, '*');</script></body></html>")

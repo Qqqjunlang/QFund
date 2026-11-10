@@ -1,5 +1,7 @@
 """工作台和独立/内嵌图表共用的展示规范；不包含业务规则。"""
 
+from importlib.resources import files
+
 APP_NAME = "QFund"
 FONT_FAMILY = '"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif'
 FONT_SIZES = {
@@ -17,3 +19,8 @@ FONT_SIZES = {
 def typography_css() -> str:
     sizes = "".join(f"--font-{name}:{size}px;" for name, size in FONT_SIZES.items())
     return f":root{{--font-family:{FONT_FAMILY};{sizes}}}\n"
+
+
+def browser_compat_script() -> str:
+    """Inline the same packaged compatibility resource used by the workbench."""
+    return files("fundlab.web").joinpath("static/browser_compat.js").read_text(encoding="utf-8")

@@ -8,17 +8,20 @@
       field.classList.toggle('date-empty',!field.value);
     }
   }
-  const pages = {home:'首页',collect:'数据获取',data:'数据查询',analysis:'数据分析'};
+  const pages = {home:'首页',collect:'数据获取',data:'数据查询',manage:'数据管理',analysis:'数据分析'};
   const store = {get(key,fallback){try{return localStorage.getItem('fundlab.'+key)||fallback;}catch{return fallback;}},set(key,value){try{localStorage.setItem('fundlab.'+key,value);}catch{/* 存储不可用时仍允许使用页面 */}}};
   let data = {funds:[],latest:null};
   let selected = store.get('fund','');
   let analysisOpened=false, activeFrame=null, analysisTimer=null, loadedAnalysisCode='';
+  let analysisKind='premium', priceQuery={start:'',end:'',periods:''};
+  let priceComparison=null, priceRankCode='', priceSummaryTicket=0;
+  const analysisTitles={premium:'溢价率时序',price:'价格走势分析'};
   function dateTime(value){if(!value)return '暂无记录';const d=new Date(value);return Number.isNaN(d.valueOf())?'日期不可用':new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);}
   function showPage(page){if(!pages[page])page='home';document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!=='page-'+page);document.querySelectorAll('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===page);if(b.dataset.page===page)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});$('page-name').textContent=pages[page];store.set('page',page);window.scrollTo(0,0);}
   document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
   document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.go)));
   function button(label,action){const b=document.createElement('button');b.className='text-button';b.textContent=label;b.addEventListener('click',action);return b;}
-  function selectFund(code){const changed=selected!==code;selected=code;store.set('fund',code);$('analysis-fund').value=code;const fund=data.funds.find(f=>f.code===code);$('selected-data').textContent=fund?`${fund.code} · ${fund.name}`:'请选择基金';$('analyze-selected').disabled=!fund;$('open-premium').disabled=!fund;renderRows('home-funds',data.funds.slice(0,5),false);renderData();if(changed){$('history-start').value='';$('history-end').value='';applied={start:'',end:'',page:1};}syncDateAppearance();if(fund)void loadHistory(applied);else{++requestId;currentHistory=null;$('history-head').replaceChildren();$('history-body').replaceChildren();$('history-meta').textContent='';$('history-summary').textContent='暂无本地基金，请先获取数据。';$('prev-page').disabled=true;$('next-page').disabled=true;downloadButtons();}if(analysisOpened&&(changed||!fund))loadPremium();}
+  function selectFund(code){const changed=selected!==code;selected=code;store.set('fund',code);if(code&&!management.inFilter(code,$('analysis-group-filter').value)){$('analysis-group-filter').value='';renderAnalysisFunds();}$('analysis-fund').value=code;const fund=data.funds.find(f=>f.code===code);$('selected-data').textContent=fund?`${fund.code} · ${fund.name}`:'请选择基金';$('analyze-selected').disabled=!fund;$('open-premium').disabled=!fund;$('open-price').disabled=!fund;renderRows('home-funds',data.funds.slice(0,5),false);renderData();if(changed){$('history-start').value='';$('history-end').value='';applied={start:'',end:'',page:1};}syncDateAppearance();if(fund)void loadHistory(applied);else{++requestId;currentHistory=null;$('history-head').replaceChildren();$('history-body').replaceChildren();$('history-meta').textContent='';$('history-summary').textContent='暂无本地基金，请先获取数据。';$('prev-page').disabled=true;$('next-page').disabled=true;downloadButtons();}if(analysisOpened&&(changed||!fund))loadChart();}
   function renderRows(id,funds,full){
     const body=$(id),collection=id==='collect-funds';body.replaceChildren();
     for(const fund of funds){
@@ -37,50 +40,163 @@
           $('collect-candidates').scrollIntoView({block:'start'});
         });
         update.classList.add('collect-select-fund');update.disabled=!!(collectSubmitting||collectUncertain||activeTask(collectTask));actions.append(update);
-      }else actions.append(button('分析',()=>{selectFund(fund.code);openPremium();}));
+      }else actions.append(button('分析',()=>openAnalysisPicker(fund.code)));
       row.append(actions);body.append(row);
     }
-    if(!funds.length){const cell=body.insertRow().insertCell();cell.colSpan=full?6:4;cell.textContent=data.error?'本地数据读取失败，请刷新重试。':collection?'还没有本地基金数据，可在上方查找并获取第一只基金。':'暂无匹配基金，可以从“数据获取”开始。';}
+    if(!funds.length){const cell=body.insertRow().insertCell();cell.colSpan=full?6:4;cell.textContent=data.error?'本地数据读取失败，请刷新重试。':collection?($('collect-group-filter').value?'该分组暂无本地基金。':'还没有本地基金数据，可在上方查找并获取第一只基金。'):'暂无匹配基金，可以从“数据获取”开始。';}
   }
-  function renderData(){const q=$('filter').value.trim().toLowerCase();renderRows('data-funds',data.funds.filter(f=>(f.code+' '+f.name).toLowerCase().includes(q)),true);}
+  function renderData(){const q=$('filter').value.trim().toLowerCase();renderRows('data-funds',data.funds.filter(f=>management.inFilter(f.code)&&(f.code+' '+f.name).toLowerCase().includes(q)),true);}
+  function renderCollectFunds(){
+    const funds=data.funds.filter(fund=>management.inFilter(fund.code,$('collect-group-filter').value));
+    $('collect-local-count').textContent=data.error?'—':funds.length+' 只';
+    renderRows('collect-funds',funds,false);
+  }
+  function renderAnalysisFunds(){
+    const funds=data.funds.filter(fund=>management.inFilter(fund.code,$('analysis-group-filter').value));
+    const picker=$('analysis-fund');picker.replaceChildren();picker.disabled=!funds.length;
+    for(const fund of funds)picker.add(new Option(`${fund.code} · ${fund.name}`,fund.code));
+    if(!funds.length)picker.add(new Option($('analysis-group-filter').value?'该分组暂无本地基金':'暂无本地基金，请先获取数据',''));
+    picker.value=selected;
+    return funds;
+  }
+  function applyAnalysisGroup(){
+    const funds=renderAnalysisFunds();
+    if(!funds.some(fund=>fund.code===selected))selectFund(funds[0]?.code||'');
+  }
+  function renderManagedFunds(){
+    const query=$('manage-filter').value.trim().toLowerCase();
+    const body=$('manage-funds');body.replaceChildren();
+    for(const fund of data.funds.filter(item=>(item.code+' '+item.name).toLowerCase().includes(query))){
+      const row=document.createElement('tr');
+      const name=document.createElement('td'),title=document.createElement('span'),code=document.createElement('span');
+      title.className='fund-name';title.textContent=fund.name;
+      code.className='fund-code';code.textContent=fund.code;name.append(title,code);row.append(name);
+      for(const value of [fund.records+' 条',`${fund.start||'—'} 至 ${fund.end||'—'}`]){
+        const cell=document.createElement('td');cell.textContent=value;row.append(cell);
+      }
+      const groups=document.createElement('td');groups.className='fund-groups';
+      groups.textContent=management.groupNames(fund.code).join('、')||'未分组';row.append(groups);
+      const actions=document.createElement('td');actions.className='actions';
+      actions.append(button('维护数据',()=>management.records(fund.code)));row.append(actions);body.append(row);
+    }
+    if(!body.children.length){
+      const cell=body.insertRow().insertCell();cell.colSpan=5;
+      cell.textContent=data.error?'本地数据读取失败，请刷新重试。':data.funds.length?'暂无匹配基金。':'暂无本地基金，可先导入文件或获取基金数据。';
+    }
+  }
+  $('manage-filter').addEventListener('input',renderManagedFunds);
   function renderOverview(){
-  $('analysis-fund').replaceChildren();$('analysis-fund').disabled=false;
-  for(const fund of data.funds){const option=document.createElement('option');option.value=fund.code;option.textContent=`${fund.code} · ${fund.name}`;$('analysis-fund').append(option);}
-  if(!data.funds.length){const option=document.createElement('option');option.textContent='暂无本地基金，请先获取数据';$('analysis-fund').append(option);$('analysis-fund').disabled=true;}
+  renderAnalysisFunds();
   $('fund-count').textContent=data.error?'—':data.funds.length;$('list-count').textContent=data.funds.length;
-  $('collect-local-count').textContent=data.error?'—':data.funds.length+' 只';renderRows('collect-funds',data.funds,false);
+  renderCollectFunds();
   $('collect-local-status').textContent=data.error?'本地数据读取失败，请刷新重试。':'已保存到本地的基金；选择更新后，确认再开始获取。';
   const statusNames={succeeded:'更新成功',failed:'更新失败',export_failed:'已保存，导出失败',saved_pending_export:'已保存，待导出',running:'更新中'};
   $('latest-status').className='latest-status';
   if(data.latest){const run=data.latest;const result=run.result||{};const fund=data.funds.find(f=>f.code===run.code);$('latest-status').textContent=statusNames[run.status]||'状态待确认';$('latest-status').classList.add(run.status==='succeeded'?'status-success':'status-other');$('latest-brief').textContent=`${run.code} · ${fund?.name||result.name||'基金'} · ${dateTime(run.completed_at||run.started_at)}`;$('latest-detail').textContent=`${run.code} ${fund?.name||result.name||''} · ${statusNames[run.status]||run.status} · ${dateTime(run.completed_at||run.started_at)}${result.inserted!==undefined?` · 新增 ${result.inserted} 条，修订 ${result.updated||0} 条`:''}`;}else{$('latest-status').textContent=data.error?'读取失败':'暂无更新';$('latest-brief').textContent='获取基金数据后，更新结果将显示在这里。';}
   $('snapshot-time').textContent=dateTime(data.generated_at);
   }
-  $('analysis-fund').addEventListener('change',e=>selectFund(e.target.value));$('filter').addEventListener('input',renderData);$('analyze-selected').addEventListener('click',openPremium);
-  function clearPremium(){clearTimeout(analysisTimer);analysisTimer=null;activeFrame=null;loadedAnalysisCode='';$('analysis-frame-host').replaceChildren();}
+  $('analysis-fund').addEventListener('change',e=>selectFund(e.target.value));$('filter').addEventListener('input',renderData);$('analyze-selected').addEventListener('click',()=>openAnalysisPicker());
+  function clearChart(){clearTimeout(analysisTimer);analysisTimer=null;activeFrame=null;loadedAnalysisCode='';$('analysis-frame-host').replaceChildren();}
   function analysisFailure(message){clearTimeout(analysisTimer);$('analysis-view').setAttribute('aria-busy','false');$('analysis-status').textContent='未能加载分析';$('analysis-error').textContent=message;$('analysis-error').hidden=false;if(activeFrame)activeFrame.hidden=true;}
-  function loadPremium(){
-    clearPremium();$('analysis-error').hidden=true;$('analysis-view').setAttribute('aria-busy','true');
+  async function loadPriceSummary(comparison=priceComparison){
+    const ticket=++priceSummaryTicket,code=selected;
+    const query={code,start:priceQuery.start,end:priceQuery.end};
+    if(comparison!==null)query.price=comparison;
+    $('price-rank').textContent='—';$('price-rank-status').textContent='';
+    try{
+      const result=await (await api('/api/price-summary?'+new URLSearchParams(query))).json();
+      if(ticket!==priceSummaryTicket||code!==selected||analysisKind!=='price'||!analysisOpened)return;
+      priceComparison=comparison;
+      $('price-comparison').value=result.comparison.mode==='custom'?result.comparison.price:'';
+      $('price-latest').textContent=result.latest_price??'—';
+      $('price-latest-date').textContent='对应价格日期：'+(result.latest_date||'—');
+      $('price-records').textContent=result.records+' 条';
+      $('price-stored-range').textContent=result.stored_start+' 至 '+result.stored_end;
+      $('price-rank-title').textContent=result.comparison.mode==='custom'?'输入价格的区间历史分位':'当前价格的区间历史分位';
+      $('price-rank').textContent=result.comparison.percentile_rank===null?'暂无可比数据':Number(result.comparison.percentile_rank).toFixed(2)+'%';
+      $('price-rank-help').textContent=`按 ${result.start} 至 ${result.end} 的 ${result.valid_samples} 条有效收盘价中“小于等于目标价格”的占比计算。`;
+    }catch(error){
+      if(ticket===priceSummaryTicket&&code===selected&&analysisKind==='price'&&analysisOpened)$('price-rank-status').textContent=error.message;
+    }
+  }
+  $('price-rank-form').addEventListener('submit',event=>{event.preventDefault();void loadPriceSummary($('price-comparison').value.trim());});
+  $('price-rank-reset').addEventListener('click',()=>{$('price-comparison').value='';void loadPriceSummary(null);});
+  function loadChart(){
+    clearChart();$('analysis-error').hidden=true;$('analysis-view').setAttribute('aria-busy','true');
     const fund=data.funds.find(f=>f.code===selected);
-    $('analysis-chart-title').textContent=fund?`${fund.code} ${fund.name} · 溢价率时序`:'溢价率时序';
+    const title=analysisTitles[analysisKind];
+    $('analysis-chart-title').textContent=fund?`${fund.code} ${fund.name} · ${title}`:title;
+    if(analysisKind==='price'&&priceRankCode!==selected){
+      priceRankCode=selected;priceComparison=null;$('price-comparison').value='';
+      for(const id of ['price-latest','price-latest-date','price-records','price-stored-range','price-rank'])$(id).textContent='—';
+    }
     if(!fund){analysisFailure('暂无可分析的本地基金，请先获取数据。');return;}
+    if(analysisKind==='price')void loadPriceSummary();
     $('analysis-status').textContent=`正在读取 ${fund.code} · ${fund.name} 的本地数据…`;
-    const frame=document.createElement('iframe');frame.id='premium-frame';frame.className='analysis-frame is-loading';frame.title=`${fund.code} ${fund.name} 溢价率分析`;frame.setAttribute('sandbox','allow-scripts allow-downloads allow-forms');
-    loadedAnalysisCode=fund.code;activeFrame=frame;frame.src='/analysis/premium?'+new URLSearchParams({code:fund.code});
+    const frame=document.createElement('iframe');frame.id=analysisKind+'-frame';frame.className='analysis-frame is-loading';frame.title=`${fund.code} ${fund.name} ${title}`;frame.setAttribute('sandbox','allow-scripts allow-downloads allow-forms');
+    loadedAnalysisCode=fund.code;activeFrame=frame;
+    const options=analysisKind==='price'?priceQuery:{};
+    frame.src='/analysis/'+analysisKind+'?'+new URLSearchParams({code:fund.code,...options});
     frame.addEventListener('error',()=>{if(activeFrame===frame)analysisFailure('无法加载分析图，请确认本地服务已启动后重新加载。');});
     $('analysis-frame-host').append(frame);
     analysisTimer=setTimeout(()=>{if(activeFrame===frame)analysisFailure('分析图未能完成加载，请确认本地服务正常后点击“重新加载”。');},20000);
   }
-  function openPremium(){showPage('analysis');$('analysis-tools').hidden=true;$('analysis-view').hidden=false;analysisOpened=true;if(loadedAnalysisCode!==selected||!activeFrame||!$('analysis-error').hidden)loadPremium();}
-  $('open-premium').addEventListener('click',openPremium);$('reload-premium').addEventListener('click',loadPremium);
-  $('analysis-back').addEventListener('click',()=>{analysisOpened=false;clearPremium();$('analysis-view').hidden=true;$('analysis-tools').hidden=false;});
+  function openAnalysis(kind){
+    if(kind!==analysisKind)clearChart();
+    analysisKind=kind;
+    showPage('analysis');$('analysis-tools').hidden=true;$('analysis-view').hidden=false;analysisOpened=true;
+    $('price-controls').hidden=kind!=='price';
+    $('price-overview').hidden=kind!=='price';
+    if(loadedAnalysisCode!==selected||!activeFrame||!$('analysis-error').hidden)loadChart();
+  }
+  function openPremium(){openAnalysis('premium');}
+  function openAnalysisPicker(code=selected){
+    analysisOpened=false;clearChart();selectFund(code);
+    $('analysis-view').hidden=true;$('analysis-tools').hidden=false;showPage('analysis');
+  }
+  $('open-premium').addEventListener('click',openPremium);
+  $('open-price').addEventListener('click',()=>openAnalysis('price'));
+  $('reload-premium').addEventListener('click',loadChart);
+  function selectPriceRange(button){
+    document.querySelectorAll('.price-range-buttons button').forEach(item=>item.classList.toggle('active',item===button));
+  }
+  $('price-customize').addEventListener('click',()=>{
+    const expanded=$('price-customize').getAttribute('aria-expanded')!=='true';
+    $('price-settings').hidden=!expanded;
+    $('price-customize').setAttribute('aria-expanded',String(expanded));
+    $('price-customize').textContent=expanded?'收起自定义 ▴':'自定义 ▾';
+  });
+  $('price-settings').addEventListener('submit',event=>{
+    event.preventDefault();
+    priceQuery={start:$('price-start').value,end:$('price-end').value,periods:$('price-periods').value};
+    selectPriceRange(null);
+    loadChart();
+  });
+  document.querySelectorAll('[data-price-months]').forEach(button=>button.addEventListener('click',()=>{
+    const fund=data.funds.find(item=>item.code===selected);
+    if(!fund?.end)return;
+    const [year,month,day]=fund.end.split('-').map(Number);
+    const start=new Date(Date.UTC(year,month-1-Number(button.dataset.priceMonths),1));
+    const lastDay=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+1,0)).getUTCDate();
+    start.setUTCDate(Math.min(day,lastDay));
+    priceQuery={...priceQuery,start:start.toISOString().slice(0,10),end:fund.end};
+    $('price-start').value=priceQuery.start;$('price-end').value=priceQuery.end;
+    selectPriceRange(button);loadChart();
+  }));
+  $('price-reset').addEventListener('click',()=>{
+    $('price-start').value='';$('price-end').value='';
+    priceQuery={...priceQuery,start:'',end:''};
+    selectPriceRange($('price-reset'));loadChart();
+  });
+  $('analysis-back').addEventListener('click',()=>{analysisOpened=false;clearChart();$('analysis-view').hidden=true;$('analysis-tools').hidden=false;});
   window.addEventListener('message',event=>{
-    const payload=event.data;if(!activeFrame||event.source!==activeFrame.contentWindow||event.origin!=='null'||!payload||payload.type!=='fundlab-premium'||payload.code!==selected)return;
+    const payload=event.data;if(!activeFrame||event.source!==activeFrame.contentWindow||event.origin!=='null'||!payload||payload.type!=='fundlab-'+analysisKind||payload.code!==selected)return;
     if(payload.status==='resize'&&Number.isFinite(payload.height)){activeFrame.style.height=Math.max(400,Math.min(5000,payload.height))+'px';}
     else if(payload.status==='ready'){clearTimeout(analysisTimer);activeFrame.hidden=false;activeFrame.classList.remove('is-loading');$('analysis-view').setAttribute('aria-busy','false');$('analysis-error').hidden=true;$('analysis-status').textContent='';}
     else if(payload.status==='image-start'){$('analysis-status').textContent=`${selected} · 正在生成 PNG 图片…`;}
     else if(payload.status==='image'){
       try{if(typeof payload.image!=='string'||!payload.image.startsWith('data:image/png;base64,')||payload.image.length>40000000)throw new Error();
-        const binary=atob(payload.image.split(',')[1]);const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));const link=document.createElement('a');link.href=url;link.download=selected+'_premium_timeline.png';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);$('analysis-status').textContent=`${selected} · 图片已交给浏览器下载`;
+        const binary=atob(payload.image.split(',')[1]);const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));const link=document.createElement('a');link.href=url;link.download=selected+'_'+analysisKind+'_timeline.png';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);$('analysis-status').textContent=`${selected} · 图片已交给浏览器下载`;
       }catch{$('analysis-status').textContent='图片保存失败，请重试。';}
     }
     else if(payload.status==='image-error'){$('analysis-status').textContent='图片生成失败，请重试。';}
@@ -90,22 +206,31 @@
   async function api(url,options={}){let response;try{response=await fetch(url,{cache:'no-store',...options});}catch{throw new Error('无法连接本地工作台，请确认服务已启动后重试。');}if(!response.ok){let message='请求未完成，请重试。',code;try{const detail=await response.json();message=detail.message||message;code=detail.code;}catch{}const error=new Error(message);error.status=response.status;error.code=code;throw error;}return response;}
   function downloadButtons(){for(const id of ['download-xlsx','download-csv'])$(id).disabled=downloadBusy||!currentHistory?.matched;}
   async function loadOverview(){
-    $('refresh-data').disabled=true;$('collect-refresh-data').disabled=true;$('load-error').hidden=true;
-    try{data=await (await api('/api/overview')).json();if(!data.funds.some(f=>f.code===selected))selected=data.funds[0]?.code||'';renderOverview();selectFund(selected);}
+    $('refresh-data').disabled=true;$('refresh-management').disabled=true;$('collect-refresh-data').disabled=true;$('load-error').hidden=true;
+    try{data=await (await api('/api/overview')).json();if(!data.funds.some(f=>f.code===selected))selected=data.funds.find(fund=>management.inFilter(fund.code,$('analysis-group-filter').value))?.code||'';renderOverview();selectFund(selected);}
     catch(error){$('load-error').textContent=error.message;$('load-error').hidden=false;if(!data.generated_at){data.error=error.message;renderOverview();renderData();}$('collect-local-status').textContent='刷新失败：'+error.message+(data.generated_at?' 当前保留上次读取的列表。':'');}
-    finally{$('refresh-data').disabled=false;$('collect-refresh-data').disabled=false;void loadWatchlist();}
+    finally{renderManagedFunds();$('refresh-data').disabled=false;$('refresh-management').disabled=false;$('collect-refresh-data').disabled=false;void loadWatchlist();void management.refreshGroups().catch(()=>{});}
   }
   async function loadHistory(query){
     const ticket=++requestId,code=selected;currentHistory=null;downloadButtons();$('history-error').hidden=true;$('download-status').hidden=true;$('history-panel').setAttribute('aria-busy','true');$('history-summary').textContent='正在读取本地历史数据…';$('history-body').replaceChildren();$('prev-page').disabled=true;$('next-page').disabled=true;
     try{const params=new URLSearchParams({code,...query});const result=await (await api('/api/history?'+params)).json();if(ticket!==requestId||code!==selected)return;
       currentHistory=result;applied={start:result.start,end:result.end,page:result.page};$('history-meta').textContent=`本地 ${result.total} 条 · ${result.local_start||'—'} 至 ${result.local_end||'—'} · 最近更新 ${dateTime(result.fetched_at)}`;$('history-summary').textContent=`当前区间共 ${result.matched} 条记录`;
-      const head=document.createElement('tr');for(const column of result.columns){const th=document.createElement('th');th.textContent=column.label;th.scope='col';head.append(th);}$('history-head').replaceChildren(head);
-      const body=$('history-body');for(const row of result.rows){const tr=document.createElement('tr');for(const column of result.columns){const td=document.createElement('td');td.textContent=row[column.key]??'—';tr.append(td);}body.append(tr);}if(!result.rows.length){const cell=body.insertRow().insertCell();cell.colSpan=result.columns.length;cell.textContent='该日期区间没有记录，请调整区间或点击“全部日期”。';}
+      const head=document.createElement('tr');for(const column of result.columns){const th=document.createElement('th');th.textContent=column.label;th.scope='col';head.append(th);}for(const title of ['来源与保护']){const th=document.createElement('th');th.textContent=title;th.scope='col';head.append(th);}$('history-head').replaceChildren(head);
+      const body=$('history-body');
+      for(const [index, record] of result.rows.entries()){
+        const tr=document.createElement('tr');
+        const meta=result.row_meta[index];
+        for(const column of result.columns){const td=document.createElement('td');td.textContent=record[column.key]??'—';tr.append(td);}
+        const source=document.createElement('td');source.textContent=management.describe(meta);
+        tr.append(source);body.append(tr);
+      }
+      if(!result.rows.length){const cell=body.insertRow().insertCell();cell.colSpan=result.columns.length+1;cell.textContent='该日期区间没有记录，请调整区间或点击“全部日期”。';}
       $('page-info').textContent=`第 ${result.page} / ${result.pages} 页 · 每页 50 条 · 价格日期从新到旧`;$('prev-page').disabled=result.page<=1;$('next-page').disabled=result.page>=result.pages;
     }catch(error){if(ticket!==requestId)return;$('history-error').textContent=error.message;$('history-error').hidden=false;$('history-summary').textContent='未能读取，请调整条件后重试。';$('history-meta').textContent='';$('page-info').textContent='每页 50 条 · 价格日期从新到旧';}
     finally{if(ticket===requestId){$('history-panel').setAttribute('aria-busy','false');downloadButtons();}}
   }
   $('refresh-data').addEventListener('click',loadOverview);
+  $('refresh-management').addEventListener('click',loadOverview);
   $('collect-refresh-data').addEventListener('click',loadOverview);
   $('date-form').addEventListener('submit',e=>{e.preventDefault();if(selected)void loadHistory({start:$('history-start').value,end:$('history-end').value,page:1});});
   $('reset-dates').addEventListener('click',()=>{$('history-start').value='';$('history-end').value='';syncDateAppearance();if(selected)void loadHistory({start:'',end:'',page:1});});
@@ -223,11 +348,23 @@
     const canView=!!collectResultCode&&data.funds.some(f=>f.code===collectResultCode)&&!activeTask(job);$('collect-result-actions').hidden=!(canView||(['update','export'].includes(job.kind)&&!activeTask(job)));$('collect-view').hidden=!canView;$('collect-analyze').hidden=!canView;$('collect-export').hidden=job.status!=='export_failed';$('collect-again').hidden=job.kind!=='update'||job.status!=='failed';
   }
   async function receiveTask(job){renderCollectTask(job);if(!job)return;if(!activeTask(job)&&handledTask!==job.id){handledTask=job.id;if(job.kind==='search'&&job.status==='succeeded'){renderCandidates(job.result);if(!$('fund-query').value)$('fund-query').value=job.payload.query;}
-      if(['update','export'].includes(job.kind)){await loadOverview();if(collectTask?.id!==job.id)return;if(analysisOpened&&selected===job.payload.code)loadPremium();renderCollectTask(job);}
+      if(['update','export'].includes(job.kind)){await loadOverview();if(collectTask?.id!==job.id)return;if(analysisOpened&&selected===job.payload.code)loadChart();renderCollectTask(job);}
     }clearTimeout(collectPoll);if(activeTask(job))collectPoll=setTimeout(()=>void refreshCollect(),1000);
   }
   async function refreshCollect(){clearTimeout(collectPoll);const revision=++collectRevision;try{const state=await (await api('/api/tasks')).json();if(revision!==collectRevision)return;collectUncertain=false;$('collect-error').hidden=true;await receiveTask(state.active||state.latest);}catch(error){if(revision!==collectRevision)return;$('collect-error').textContent=error.message+' 如已提交，请先刷新任务状态，不要重复采集。';$('collect-error').hidden=false;if(activeTask(collectTask)||collectUncertain)collectPoll=setTimeout(()=>void refreshCollect(),3000);}finally{collectButtons();}}
-  async function startCollect(kind,payload={}){if(collectSubmitting||collectUncertain||activeTask(collectTask))return;const revision=++collectRevision;collectSubmitting=true;collectButtons();$('collect-error').hidden=true;try{const job=await postTask('/api/tasks/'+kind,{...payload,request_id:crypto.randomUUID()});if(revision===collectRevision)await receiveTask(job);}catch(error){$('collect-error').textContent=error.message;$('collect-error').hidden=false;collectUncertain=!error.status||error.status>=500;try{const state=await (await api('/api/tasks')).json();if(revision===collectRevision){collectUncertain=false;await receiveTask(state.active||state.latest);}}catch{if(collectUncertain)collectPoll=setTimeout(()=>void refreshCollect(),3000);}}finally{collectSubmitting=false;collectButtons();}}
+  async function startCollect(kind,payload={}){if(collectSubmitting||collectUncertain||activeTask(collectTask))return;const revision=++collectRevision;let submitted=false;collectSubmitting=true;collectButtons();$('collect-error').hidden=true;try{
+    if(kind==='update'){
+      let state;
+      try{state=await (await api('/api/maintenance?'+new URLSearchParams({code:payload.code}))).json();}
+      catch(error){if(error.status!==404)throw error;}
+      if(state?.state==='trashed'){
+        if(!confirm(`${payload.code} 在基金回收站。确认恢复并开始获取？`))return;
+        payload={...payload,restore_from_trash:true};
+      }else if(state && state.state!=='active'){
+        throw new Error('请先在基金回收站处理未完成的操作。');
+      }
+    }
+    const request_id=QFundBrowserCompat.requestId();submitted=true;const job=await postTask('/api/tasks/'+kind,{...payload,request_id});if(revision===collectRevision)await receiveTask(job);}catch(error){$('collect-error').textContent=error.message;$('collect-error').hidden=false;collectUncertain=submitted&&(!error.status||error.status>=500);if(submitted){try{const state=await (await api('/api/tasks')).json();if(revision===collectRevision){collectUncertain=false;await receiveTask(state.active||state.latest);}}catch{if(collectUncertain)collectPoll=setTimeout(()=>void refreshCollect(),3000);}}}finally{collectSubmitting=false;collectButtons();}}
   $('collect-search-form').addEventListener('submit',e=>{e.preventDefault();void startCollect('search',{query:$('fund-query').value.trim()});});
   $('fund-query').addEventListener('input',()=>{collectChoice='';$('collect-candidates').hidden=true;collectButtons();});
   $('collect-start').addEventListener('click',()=>{if(collectChoice)void startCollect('update',{code:collectChoice});});
@@ -237,7 +374,7 @@
   $('collect-refresh').addEventListener('click',refreshCollect);
   $('collect-cancel').addEventListener('click',async()=>{if(!collectTask)return;try{await receiveTask(await postTask('/api/tasks/cancel',{job_id:collectTask.id}));}catch(error){$('collect-error').textContent=error.message;$('collect-error').hidden=false;}});
   $('collect-view').addEventListener('click',async()=>{const code=collectResultCode;await loadOverview();selectFund(code);showPage('data');$('history-panel').scrollIntoView({block:'start'});});
-  $('collect-analyze').addEventListener('click',async()=>{const code=collectResultCode;await loadOverview();selectFund(code);clearPremium();openPremium();});
+  $('collect-analyze').addEventListener('click',async()=>{const code=collectResultCode;await loadOverview();openAnalysisPicker(code);});
   function clock(){const now=new Date();$('today').textContent=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(now);$('date-short').textContent=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit'}).format(now);$('weekday').textContent=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',weekday:'long'}).format(now);}
   clock();setInterval(clock,60000);
   const splitter=$('splitter');let dragging=false;
@@ -249,5 +386,16 @@
   splitter.addEventListener('pointerup',stopDrag);splitter.addEventListener('pointercancel',stopDrag);splitter.addEventListener('lostpointercapture',stopDrag);
   splitter.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();store.set('sidebar',setWidth(Number(splitter.getAttribute('aria-valuenow'))+(e.key==='ArrowRight'?10:-10)));}if(e.key==='Home'){e.preventDefault();store.set('sidebar',setWidth(220));}});
   window.addEventListener('resize',()=>setWidth(Number(splitter.getAttribute('aria-valuenow'))));
+  const management=setupFundManagement({
+    get:async path=>(await api(path)).json(),
+    post:postTask,
+    funds:()=>data.funds,
+    refresh:async code=>{
+      if(code && code!==selected){selected=code;applied={start:'',end:'',page:1};$('history-start').value='';$('history-end').value='';}
+      await loadOverview();
+      if(analysisOpened)loadChart();
+    },
+    filterChanged:()=>{renderData();renderManagedFunds();renderCollectFunds();applyAnalysisGroup();}
+  });
   showPage(store.get('page','home'));void loadOverview().then(refreshCollect);
 })();

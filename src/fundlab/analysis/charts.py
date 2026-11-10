@@ -5,7 +5,7 @@ import json
 
 from fundlab.analysis.premium import PremiumSeries
 from fundlab.models import Fund
-from fundlab.presentation import APP_NAME, FONT_FAMILY, FONT_SIZES, typography_css
+from fundlab.presentation import APP_NAME, FONT_FAMILY, FONT_SIZES, browser_compat_script, typography_css
 
 
 DEFAULT_CHART_AVERAGE_PERIODS = (20,)
@@ -53,6 +53,7 @@ def render_premium_timeline(fund: Fund, series: PremiumSeries, *, embedded: bool
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{escape(APP_NAME)} · {fund.code} {name} · 溢价率时序分析</title>
+<script>{browser_compat_script()}</script>
 <style>
 {typography_css()}
 *{{box-sizing:border-box}}body{{margin:0;background:#f3f6fb;color:#1e293b;font:var(--font-body)/1.6 var(--font-family)}}

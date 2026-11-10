@@ -97,7 +97,7 @@ class LocalChartTests(unittest.TestCase):
 
     def test_unsupported_database_version_is_read_only(self):
         with self.repo.connection() as db:
-            db.execute("PRAGMA user_version=2")
+            db.execute("PRAGMA user_version=99")
         before = self.config.database_path.read_bytes()
         with self.assertRaises(FundlabError) as caught:
             read_history_snapshot(self.config.database_path, self.fund.code)

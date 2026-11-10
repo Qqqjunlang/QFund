@@ -14,6 +14,20 @@ QUANTILES = (10, 30, 50, 70, 90)
 PERIODS = {"1m": 1, "3m": 3, "6m": 6, "1y": 12}
 
 
+def linear_percentiles(sorted_values, percentiles):
+    """Interpolate at (n - 1) * p using the caller's Decimal context."""
+    result = {}
+    for percentile in percentiles:
+        if not sorted_values:
+            result[percentile] = None
+            continue
+        position = Decimal(len(sorted_values) - 1) * percentile / 100
+        lower = int(position)
+        upper = min(lower + 1, len(sorted_values) - 1)
+        result[percentile] = sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * (position - lower)
+    return result
+
+
 @dataclass(frozen=True)
 class AnalysisRequest:
     period: str = "all"
@@ -101,13 +115,7 @@ def analyze_premium(series: PremiumSeries, request: AnalysisRequest = AnalysisRe
         selected = [row for row in all_rows if start <= row["price_date"] <= end]
         window_valid = sorted(Decimal(row["premium"]) for row in selected if row["premium"] is not None)
         latest = next((row for row in reversed(all_rows) if row["premium"] is not None), None)
-        quantiles = {str(q): None for q in QUANTILES}
-        if window_valid:
-            for q in QUANTILES:
-                position = Decimal(len(window_valid) - 1) * q / 100
-                lower = int(position)
-                upper = min(lower + 1, len(window_valid) - 1)
-                quantiles[str(q)] = number(window_valid[lower] + (window_valid[upper] - window_valid[lower]) * (position - lower))
+        quantiles = {str(q): number(value) for q, value in linear_percentiles(window_valid, QUANTILES).items()}
         rank = None
         if latest is not None and window_valid:
             rank = number(Decimal(sum(v <= Decimal(latest["premium"]) for v in window_valid)) / len(window_valid) * 100)

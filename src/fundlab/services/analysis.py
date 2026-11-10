@@ -6,6 +6,8 @@ import tempfile
 from fundlab.analysis.charts import render_premium_timeline
 from fundlab.analysis.calculations import AnalysisRequest, analyze_premium
 from fundlab.analysis.premium import premium_series
+from fundlab.analysis.price import closing_prices, parse_periods, summarize_prices
+from fundlab.analysis.price_chart import render_price_timeline
 from fundlab.config import AppConfig
 from fundlab.errors import FundlabError
 from fundlab.exports.service import fund_folder
@@ -27,6 +29,19 @@ def premium_chart_document(config: AppConfig, code: str, *, embedded: bool = Fal
     code = validate_code(code)
     snapshot = read_history_snapshot(config.database_path, code)
     return render_premium_timeline(snapshot.fund, premium_series(snapshot.rows), embedded=embedded)
+
+
+def price_chart_document(config: AppConfig, code: str, *, periods='', start='', end='') -> str:
+    code = validate_code(code)
+    windows = parse_periods(periods)
+    snapshot = read_history_snapshot(config.database_path, code)
+    points = closing_prices(snapshot.rows, windows, start=start, end=end)
+    return render_price_timeline(snapshot.fund, points, windows)
+
+
+def price_summary(config: AppConfig, code: str, *, start='', end='', comparison_price=None) -> dict:
+    snapshot = read_history_snapshot(config.database_path, validate_code(code))
+    return summarize_prices(snapshot.rows, start=start, end=end, comparison_price=comparison_price)
 
 
 def create_premium_chart(config: AppConfig, code: str) -> dict:

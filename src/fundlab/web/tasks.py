@@ -80,7 +80,11 @@ class TaskManager:
             raise FundlabError("VALIDATION_ERROR", "任务类型不支持。")
         if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,80}", request_id):
             raise FundlabError("VALIDATION_ERROR", "请求标识不正确，请刷新页面重试。")
-        if not isinstance(payload, dict) or any(not isinstance(value, str) for value in payload.values()):
+        if not isinstance(payload, dict):
+            raise FundlabError("VALIDATION_ERROR", "任务参数无效。")
+        restore = payload.get("restore_from_trash", False)
+        if ("restore_from_trash" in payload and (kind != "update" or type(restore) is not bool)
+                or any(not isinstance(value, str) for key, value in payload.items() if key != "restore_from_trash")):
             raise FundlabError("VALIDATION_ERROR", "任务参数须为文本。")
         if kind == "search":
             payload = {"query": validate_query(payload.get("query", ""))}
@@ -88,6 +92,8 @@ class TaskManager:
                 validate_code(payload["query"])
         elif kind in {"update", "export"}:
             payload = {"code": validate_code(payload.get("code", ""))}
+            if restore:
+                payload["restore_from_trash"] = True
         else:
             payload = {}
         with self.lock:
@@ -131,7 +137,8 @@ class TaskManager:
             else:
                 if kind == "update":
                     progress("fetching")
-                    outcome = update_one(self.config, payload["code"], progress=progress)
+                    options = {"restore_from_trash": True} if payload.get("restore_from_trash") else {}
+                    outcome = update_one(self.config, payload["code"], progress=progress, **options)
                 else:
                     progress("exporting")
                     outcome = retry_export(self.config, payload["code"])

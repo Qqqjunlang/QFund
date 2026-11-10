@@ -4,6 +4,7 @@ import json
 import sqlite3
 
 from fundlab.errors import FundlabError
+from fundlab.storage.migrations import READ_VERSIONS
 
 FIELDS = ("slot", "code", "name", "merged_from", "merged_count", "status", "phase", "attempts",
           "export_attempts", "run_id", "data_run_id", "error_code", "message", "retry_at", "updated_at", "completed_at")
@@ -85,7 +86,7 @@ def market_run(config, run_id):
         with closing(sqlite3.connect(config.database_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=15)) as db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA query_only=ON")
-            if db.execute("PRAGMA user_version").fetchone()[0] != 1:
+            if db.execute("PRAGMA user_version").fetchone()[0] not in READ_VERSIONS:
                 raise FundlabError("DATABASE_VERSION", "行情库版本不受支持，自动执行恢复已停止。")
             row = db.execute("SELECT * FROM update_runs WHERE run_id=?", (run_id,)).fetchone()
             if not row:

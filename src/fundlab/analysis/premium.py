@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 
 from fundlab.errors import FundlabError
+from fundlab.storage.effective import premium_value
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ def premium_series(rows: list[dict]) -> PremiumSeries:
     points = []
     try:
         for row in sorted(rows, key=lambda item: item["price_date"]):
-            value = row["source_premium"]
+            value = premium_value(row)
             if value is None:
                 converted = None
             else:

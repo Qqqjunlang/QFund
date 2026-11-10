@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fundlab-local"
-version = "1.0.0"
+version = "1.1.0"
 description = "QFund 本地基金数据工具：采集、保存、导出与溢价分析"
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,7 @@ classifiers = [
   "Topic :: Office/Business :: Financial",
 ]
 requires-python = ">=3.11"
-dependencies = ["playwright==1.56.0", "openpyxl==3.1.5", "plotly==7.1.0"]
+dependencies = ["playwright==1.56.0", "openpyxl==3.1.5", "plotly==7.1.0", "packaging==26.3"]
 
 [project.scripts]
 fundlab = "fundlab.cli:main"

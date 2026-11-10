@@ -14,23 +14,72 @@ from fundlab.errors import FundlabError
 NS = 'http://schemas.microsoft.com/windows/2004/02/mit/task'
 ET.register_namespace('', NS)
 
+TASK_PERMISSION_CODES = {0x80070005, 0x80070522}
+TASK_SERVICE_CODES = {0x80041315, 0x80041322, 0x80041323, 0x80070422, 0x800706BA}
+
+
+def _task_failure(data):
+    raw_code = data.get('hresult')
+    hresult = raw_code & 0xFFFFFFFF if type(raw_code) is int and -(2**31) <= raw_code <= 0xFFFFFFFF else None
+    known = {
+        'TASK_OWNERSHIP_CONFLICT': ('WINDOWS_TASK_CONFLICT', '同名任务不属于本项目，已保留且未修改。'),
+        'TASK_RUNNING': ('SCHEDULE_BUSY', '本项目的自动任务正在运行，请等待结束后重试。'),
+        'TASK_NOT_ENABLED': ('WINDOWS_TASK_NOT_ENABLED', '本项目的自动任务尚未启用。'),
+    }
+    category = data.get('error')
+    if isinstance(category, str) and category in known:
+        code, message = known[category]
+    elif hresult in TASK_PERMISSION_CODES:
+        code, message = 'WINDOWS_TASK_PERMISSION', '当前用户没有所需的 Windows 任务权限，请使用原安装账户或联系管理员。'
+    elif hresult in TASK_SERVICE_CODES or data.get('phase') == 'service':
+        code, message = 'WINDOWS_TASK_SERVICE', '无法连接 Windows 任务计划服务，请检查服务状态后重试。'
+    else:
+        code, message = 'WINDOWS_TASK_FAILED', 'Windows 任务操作失败，请核对任务状态后重试。'
+    if hresult is not None:
+        message += f'（系统代码 0x{hresult:08X}）'
+    return FundlabError(code, message)
+
+
+def _protocol_failure():
+    return FundlabError('WINDOWS_TASK_PROTOCOL', 'Windows 任务助手未返回有效结果，任务状态未确认。请先核对再重试。')
+
 
 def transport(request):
     if sys.platform != 'win32':
         raise FundlabError('WINDOWS_TASK_UNAVAILABLE', '系统任务仅支持Windows，未修改任何任务。')
     powershell = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
     try:
-        result = subprocess.run([str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+        result = subprocess.run([str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive',
+                                 '-ExecutionPolicy', 'RemoteSigned', '-File',
                                  str(Path(__file__).with_suffix('.ps1'))],
-                                input=json.dumps(request, ensure_ascii=False), encoding='utf-8',
+                                input=json.dumps(request, ensure_ascii=False).encode('utf-8'),
                                 capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
-        data = json.loads(result.stdout.lstrip('\ufeff'))
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        raise FundlabError('WINDOWS_TASK_UNAVAILABLE', '无法确认Windows任务状态，请刷新核对；未把失败当作已安装。') from None
-    if not data.get('ok') or result.returncode:
-        code = 'WINDOWS_TASK_CONFLICT' if data.get('error') == 'TASK_OWNERSHIP_CONFLICT' else 'WINDOWS_TASK_FAILED'
-        reason = '同名任务不属于本项目，已保留且未修改。' if code.endswith('CONFLICT') else 'Windows任务操作失败，请检查任务计划服务或当前用户权限后重试。'
-        raise FundlabError(code, reason + f"（系统代码{data.get('hresult', '未知')}）")
+    except subprocess.TimeoutExpired:
+        raise FundlabError('WINDOWS_TASK_TIMEOUT', 'Windows 任务检查或操作超时，结果未确认。请先核对任务状态再重试。') from None
+    except PermissionError:
+        raise FundlabError('WINDOWS_TASK_PERMISSION', '当前用户没有权限启动 Windows PowerShell，请联系管理员。') from None
+    except OSError:
+        raise FundlabError('WINDOWS_TASK_START_FAILED', '无法启动 Windows PowerShell，请检查系统组件后重试。') from None
+    try:
+        data = json.loads(result.stdout.decode('utf-8-sig'))
+    except (UnicodeError, ValueError):
+        # Windows PowerShell 有时以包装异常报告策略错误，保留帮助链接和错误 ID。
+        diagnostics = result.stderr.lower()
+        blocked = (b'pssecurityexception' in diagnostics
+                   or (b'linkid=135170' in diagnostics and b'unauthorizedaccess' in diagnostics))
+        if result.returncode and blocked:
+            raise FundlabError('WINDOWS_TASK_POLICY', 'PowerShell 阻止了任务助手脚本。请检查组织执行策略或脚本来源，并联系管理员核对。') from None
+        raise _protocol_failure() from None
+    if not isinstance(data, dict):
+        raise _protocol_failure()
+    if data.get('ok') is False and result.returncode:
+        raise _task_failure(data)
+    if (result.returncode or data.get('ok') is not True or type(data.get('installed')) is not bool
+            or not isinstance(data.get('sid'), str) or not data['sid']):
+        raise _protocol_failure()
+    if data['installed'] and (not isinstance(data.get('xml'), str) or not data['xml']
+                              or type(data.get('enabled')) is not bool or type(data.get('state')) is not int):
+        raise _protocol_failure()
     return data
 
 

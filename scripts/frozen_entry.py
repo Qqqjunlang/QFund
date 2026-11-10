@@ -23,7 +23,8 @@ def diagnose(config, probe_port=None):
     import plotly.io as pio
     load_calendar()
     resources = ("analysis/premium_client.js", "web/static/index.html", "web/static/style.css",
-                 "web/static/app.js", "web/static/qfund-icon.svg", "scheduling/calendar-2026.json",
+                 "web/static/app.js", "web/static/management.js", "web/static/browser_compat.js",
+                 "web/static/qfund-icon.svg", "scheduling/calendar-2026.json",
                  "scheduling/windows_task.ps1")
     hashes = {name: hashlib.sha256(files('fundlab').joinpath(name).read_bytes()).hexdigest()
               for name in resources}

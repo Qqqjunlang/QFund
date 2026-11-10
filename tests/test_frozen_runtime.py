@@ -88,11 +88,14 @@ class FrozenRuntimeTests(unittest.TestCase):
     @unittest.skipUnless(os.name == 'nt', 'Windows任务传输')
     def test_frozen_transport_keeps_exact_identity_without_shell(self):
         request = {'operation':'query','name':'isolated','command':'QFundWorker.exe'}
-        reply = subprocess.CompletedProcess([], 0, json.dumps({'ok':True,'installed':False}))
+        reply = subprocess.CompletedProcess([], 0, json.dumps({'ok':True,'installed':False,'sid':'S-1-5-21-test'}).encode())
         with patch.object(sys, 'frozen', True, create=True), patch('fundlab.scheduling.windows_task.subprocess.run', return_value=reply) as run:
             self.assertFalse(transport(request)['installed'])
         self.assertEqual(json.loads(run.call_args.kwargs['input']), request)
         self.assertNotIn('shell', run.call_args.kwargs)
+        command = run.call_args.args[0]
+        policy = command.index('-ExecutionPolicy')
+        self.assertEqual(command[policy:policy + 3], ['-ExecutionPolicy', 'RemoteSigned', '-File'])
 
     def test_frozen_worker_forwards_to_same_executor_and_preserves_exit_code(self):
         with patch.object(worker_entry, 'worker_main', return_value=2) as run:

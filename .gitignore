@@ -27,3 +27,10 @@ Desktop.ini
 *.pem
 *.pfx
 *.p12
+
+# 本机历史过程与验收，原件保留但不进入公开源码
+docs/installation-acceptance.md
+docs/exe-prototype.md
+docs/exe-automatic-updates.md
+docs/installed-use-acceptance.md
+docs/github-preparation.md

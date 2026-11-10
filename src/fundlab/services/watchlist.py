@@ -1,6 +1,7 @@
 """自动更新名单管理；本步不注册任务、不触发采集，也不修改行情库。"""
 from contextlib import closing, contextmanager
 import sqlite3
+from threading import Lock
 
 from fundlab.config import AppConfig
 from fundlab.errors import FundlabError
@@ -8,6 +9,10 @@ from fundlab.models import utc_now
 from fundlab.services.data_query import overview
 from fundlab.scheduling.store import ScheduleStore
 from fundlab.validation import validate_code
+from fundlab.services.locking import membership_lock
+
+# 同进程名单请求先串行，保留既有并发重复加入的幂等行为；跨进程仍由项目锁仲裁。
+_change_lock = Lock()
 
 
 class WatchlistService:
@@ -69,7 +74,19 @@ class WatchlistService:
         return {"items": items, "available_funds": available,
                 "enabled_count": sum(item["enabled"] for item in items)}
 
+    def _remove_locked(self, code):
+        """跨库回收操作专用：调用方持项目锁；不存在名单时不创建新库。"""
+        code = self._code(code)
+        with _change_lock, membership_lock(self.config):
+            if self.config.watchlist_path.is_file():
+                with self._connection(write=True) as db:
+                    db.execute("DELETE FROM watchlist WHERE code=?", (code,))
+
     def change(self, action, code, enabled=None):
+        with _change_lock, membership_lock(self.config):
+            return self._change_locked(action, code, enabled)
+
+    def _change_locked(self, action, code, enabled=None):
         code = self._code(code)
         if action not in {"add", "set_enabled", "remove"}:
             raise FundlabError("VALIDATION_ERROR", "自动更新名单操作不正确。")

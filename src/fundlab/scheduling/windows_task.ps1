@@ -1,15 +1,23 @@
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+function Get-TaskHResult($exception) {
+    while ($exception.InnerException) { $exception = $exception.InnerException }
+    return $exception.HResult
+}
+$phase = 'input'
+$failure = 'TASK_OPERATION_FAILED'
 try {
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $phase = 'service'
     $service = New-Object -ComObject 'Schedule.Service'
     $service.Connect()
     $folder = $service.GetFolder([string][char]92)
+    $phase = 'task'
     $task = $null
     try { $task = $folder.GetTask($request.name) } catch {
-        if ($_.Exception.HResult -ne -2147024894) { throw }
+        if ((Get-TaskHResult $_.Exception) -ne -2147024894) { throw }
     }
     if ($task) {
         [xml]$existing = $task.Xml
@@ -20,7 +28,8 @@ try {
         if (-not $source -or $source.InnerText -cne $request.source -or -not $action -or
             $action.Command -cne $request.command -or $action.Arguments -cne $request.arguments -or
             $action.WorkingDirectory -cne $request.directory) {
-            throw 'TASK_OWNERSHIP_CONFLICT'
+            $failure = 'TASK_OWNERSHIP_CONFLICT'
+            throw $failure
         }
     }
     switch ($request.operation) {
@@ -32,13 +41,19 @@ try {
         'disable' { if ($task) { $task.Enabled = $false } }
         'remove' {
             if ($task) {
-                if ($task.State -eq 4) { throw 'TASK_RUNNING' }
+                if ($task.State -eq 4) {
+                    $failure = 'TASK_RUNNING'
+                    throw $failure
+                }
                 $folder.DeleteTask($request.name, 0)
                 $task = $null
             }
         }
         'run' {
-            if (-not $task -or -not $task.Enabled) { throw 'TASK_NOT_ENABLED' }
+            if (-not $task -or -not $task.Enabled) {
+                $failure = 'TASK_NOT_ENABLED'
+                throw $failure
+            }
             $null = $task.Run($null)
         }
         default { throw 'INVALID_OPERATION' }
@@ -60,6 +75,6 @@ try {
     }
     $result | ConvertTo-Json -Compress -Depth 5
 } catch {
-    @{ok=$false; error=$_.Exception.Message; hresult=$_.Exception.HResult} | ConvertTo-Json -Compress
+    @{ok=$false; error=$failure; phase=$phase; hresult=(Get-TaskHResult $_.Exception)} | ConvertTo-Json -Compress
     exit 1
 }

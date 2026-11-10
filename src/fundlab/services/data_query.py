@@ -12,6 +12,8 @@ from fundlab.exports.service import render_history_file
 from fundlab.models import utc_now
 from fundlab.parsers.history import FIELD_DEFINITIONS, RATIO_FIELDS, canonical_decimal
 from fundlab.storage.repository import read_history_snapshot
+from fundlab.storage.migrations import READ_VERSIONS
+from fundlab.storage.effective import effective_rows, premium_value
 from fundlab.validation import validate_code
 
 
@@ -24,7 +26,8 @@ def overview(config: AppConfig) -> dict:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA query_only=ON")
             db.execute("BEGIN")
-            if db.execute("PRAGMA user_version").fetchone()[0] != 1:
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version not in READ_VERSIONS:
                 raise FundlabError("DATABASE_VERSION", "本地数据库版本暂不支持。")
             result["funds"] = [dict(row) for row in db.execute("""
                 SELECT f.code,f.name,f.category,count(h.price_date) AS records,
@@ -32,8 +35,18 @@ def overview(config: AppConfig) -> dict:
                 FROM funds f LEFT JOIN history h ON h.fund_id=f.id
                 WHERE f.source='jisilu' GROUP BY f.id ORDER BY f.code
             """)]
+            if version >= 3:
+                result["funds"] = [f for f in result["funds"] if not db.execute(
+                    "SELECT 1 FROM fund_state s JOIN funds f ON f.id=s.fund_id WHERE f.code=? AND s.state!='active'", (f["code"],)).fetchone()]
+            if version >= 2:
+                for fund in result["funds"]:
+                    fund_id = db.execute("SELECT id FROM funds WHERE source='jisilu' AND code=?", (fund["code"],)).fetchone()[0]
+                    rows = effective_rows(db, fund_id, version)
+                    fund.update(records=len(rows), start=rows[0]["price_date"] if rows else None,
+                                end=rows[-1]["price_date"] if rows else None,
+                                fetched_at=max((r["fetched_at"] for r in rows), default=None))
             row = db.execute("""SELECT code,status,started_at,completed_at,result_json
-                FROM update_runs WHERE mode != 'export' ORDER BY started_at DESC LIMIT 1""").fetchone()
+                FROM update_runs WHERE mode NOT IN ('export','local') ORDER BY started_at DESC LIMIT 1""").fetchone()
             if row:
                 latest = dict(row)
                 raw = json.loads(latest.pop("result_json") or "{}")
@@ -68,18 +81,20 @@ def history_page(config: AppConfig, code: str, start: str = "", end: str = "", p
     pages = max(1, (len(rows) + page_size - 1) // page_size)
     page = min(page, pages)
     display = []
+    row_meta = []
     for row in rows[(page - 1) * page_size:page * page_size]:
         values = {}
         for key, _, _, _ in FIELD_DEFINITIONS:
-            value = row[key]
+            value = premium_value(row) if key == "source_premium" else row[key]
             if value is not None and key in RATIO_FIELDS:
                 with localcontext() as ctx:
                     ctx.prec = 60
                     value = canonical_decimal(Decimal(value) * 100) + "%"
             values[key] = value
         display.append(values)
+        row_meta.append({key: row[key] for key in ("revision", "record_origin", "protected_fields", "field_origins", "premium_origin")})
     return {"fund": asdict(snapshot.fund), "columns": [{"key": k, "label": label} for k, _, label, _ in FIELD_DEFINITIONS],
-            "rows": display, "total": len(all_rows), "matched": len(rows), "page": page, "pages": pages,
+            "rows": display, "row_meta": row_meta, "total": len(all_rows), "matched": len(rows), "page": page, "pages": pages,
             "page_size": page_size, "start": start, "end": end,
             "local_start": all_rows[-1]["price_date"] if all_rows else None,
             "local_end": all_rows[0]["price_date"] if all_rows else None,

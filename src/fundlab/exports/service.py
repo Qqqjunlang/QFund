@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from fundlab.config import AppConfig
 from fundlab.errors import FundlabError
+from fundlab.storage.effective import premium_value
 from fundlab.models import Fund, utc_now
 from fundlab.parsers.history import FIELD_DEFINITIONS, RATIO_FIELDS, canonical_decimal
 from fundlab.validation import validate_code
@@ -70,7 +71,7 @@ def render_csv(rows: list[dict]) -> bytes:
         for row in rows:
             values = []
             for key, _, _, _ in FIELD_DEFINITIONS:
-                value = row[key]
+                value = premium_value(row) if key == "source_premium" else row[key]
                 if value is None:
                     values.append("")
                 elif key in RATIO_FIELDS:
@@ -92,7 +93,7 @@ def _write_xlsx(path: Path | BytesIO, fund: Fund, rows: list[dict], metadata: di
     for row in rows:
         values = []
         for key, _, _, _ in FIELD_DEFINITIONS:
-            value = row[key]
+            value = premium_value(row) if key == "source_premium" else row[key]
             if value is None or key in ("price_date", "nav_date"):
                 values.append(value)
             else:

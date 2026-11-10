@@ -1,14 +1,19 @@
 """安装/卸载的互斥与任务保留；不迁移或删除用户数据。"""
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, closing, nullcontext
+from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import os
 from pathlib import Path, PurePosixPath
+import sqlite3
 import sys
 import time
 from uuid import uuid4
 
+from packaging.version import Version
+
 from fundlab.collectors.session import ProfileLock
 from fundlab.errors import FundlabError
+from fundlab.storage.migrations import READ_VERSIONS
 
 
 class InstallationGate:
@@ -91,8 +96,52 @@ def _hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _version(value):
+    try:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError()
+        return Version(value)
+    except ValueError:
+        raise FundlabError('INSTALL_VERSION_UNCONFIRMED', '程序版本无法确认，请使用完整安装包修复；请保留现有程序和数据。') from None
+
+
+def _manifest_version(app):
+    try:
+        data = json.loads((app / 'program-manifest.json').read_text(encoding='utf-8-sig'))
+        if data['product'] != 'QFund' or data['schema'] != 1:
+            raise ValueError()
+        return _version(data['version'])
+    except (OSError, ValueError, KeyError, TypeError):
+        raise FundlabError('INSTALL_VERSION_UNCONFIRMED', '程序版本清单无法确认，请使用完整安装包修复；请保留现有程序和数据。') from None
+
+
+def _check_data_versions(config):
+    databases = (
+        ('行情', config.database_path, READ_VERSIONS),
+        ('自动更新名单', config.watchlist_path, (1,)),
+        ('自动执行记录', config.schedule_path, (1,)),
+    )
+    for label, path, supported in databases:
+        if not path.exists():
+            continue
+        try:
+            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=3)) as db:
+                db.execute('PRAGMA query_only=ON')
+                db.execute('BEGIN')
+                schema = db.execute('PRAGMA user_version').fetchone()[0]
+                empty = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
+                if schema not in supported and not (schema == 0 and empty):
+                    raise FundlabError('INSTALL_DATA_VERSION', f'{label}数据库版本不受此安装包支持，请使用兼容的新版程序。')
+                if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+                    raise sqlite3.DatabaseError()
+        except (OSError, sqlite3.Error):
+            raise FundlabError('INSTALL_DATA_UNCONFIRMED', f'{label}数据库无法确认，请保留原文件并检查后重试。') from None
+    from fundlab.scheduling.settings import ScheduleSettings
+    ScheduleSettings(config).read()
+
+
 class MaintenanceSession:
-    def __init__(self, config, app, install_id, mode, *, task_factory=None):
+    def __init__(self, config, app, install_id, mode, *, task_factory=None, incoming_version=None):
         self.config, self.app = config, Path(app).resolve()
         self.install_id, self.mode = install_id, mode
         self.stack = ExitStack()
@@ -100,6 +149,7 @@ class MaintenanceSession:
         self.removed = False
         self.snapshot = {}
         self.snapshot_complete = True
+        self.incoming_version = incoming_version
         if task_factory is None:
             from fundlab.scheduling.windows_task import WindowsTask
             task_factory = WindowsTask
@@ -111,33 +161,15 @@ class MaintenanceSession:
         root = self.config.root.resolve()
         if self.app.is_relative_to(root) or root.is_relative_to(self.app):
             raise FundlabError('INSTALL_PATH_INVALID', '程序目录与数据目录必须分开，请选择其他安装位置。')
-        marker_path = self.app / 'qfund-install.json'
-        try:
-            if marker_path.exists():
-                marker = json.loads(marker_path.read_text(encoding='utf-8'))
-                if (marker['product'] != 'QFund' or marker['install_id'] != self.install_id or
-                    Path(marker['app_dir']).resolve() != self.app or Path(marker['data_root']).resolve() != root):
-                    raise ValueError()
-                try:
-                    managed = _bundle_files(self.app)
-                except FundlabError:
-                    if self.mode != 'install':
-                        raise
-                    managed = {}; self.snapshot_complete = False
-                self.snapshot = {path: _hash(path) for path in managed if path.is_file()}
-                self.snapshot_complete = self.snapshot_complete and len(self.snapshot) == len(managed)
-                self.snapshot[marker_path] = _hash(marker_path)
-                if (self.app / 'program-manifest.json').is_file():
-                    self.snapshot[self.app / 'program-manifest.json'] = _hash(self.app / 'program-manifest.json')
-            elif self.mode == 'uninstall' or (self.app.exists() and any(self.app.iterdir())):
-                raise ValueError()
-        except (OSError, ValueError, TypeError, KeyError):
-            raise FundlabError('INSTALL_TARGET_UNCONFIRMED', '所选目录不是可确认的QFund安装目录，请选择空目录或原安装位置；不会覆盖其他资料。') from None
         try:
             self.stack.enter_context(InstallationGate(self.config, exclusive=True))
             for name in ('web-server.lock', 'scheduler.lock', 'update.lock', 'edge-profile.lock'):
                 self.stack.enter_context(ProfileLock(self.config.local_dir / name,
                     FundlabError('INSTALLATION_BUSY', '工作台、登录或数据任务仍在运行，请完成后正常退出再继续安装或卸载。')))
+            marker = self._inspect_target(root)
+            if self.mode == 'install':
+                self._check_versions(marker)
+                _check_data_versions(self.config)
             self.before = self.task.query()
             if self.before['installed']:
                 from fundlab.scheduling.settings import ScheduleSettings
@@ -163,6 +195,52 @@ class MaintenanceSession:
                 self.stack.close()
             raise
 
+    def _inspect_target(self, root):
+        marker_path = self.app / 'qfund-install.json'
+        marker = None
+        try:
+            if marker_path.exists():
+                marker = json.loads(marker_path.read_text(encoding='utf-8'))
+                if (marker['product'] != 'QFund' or marker['install_id'] != self.install_id or
+                    Path(marker['app_dir']).resolve() != self.app or Path(marker['data_root']).resolve() != root):
+                    raise ValueError()
+                try:
+                    managed = _bundle_files(self.app)
+                except FundlabError:
+                    if self.mode != 'install':
+                        raise
+                    managed = {}; self.snapshot_complete = False
+                self.snapshot = {path: _hash(path) for path in managed if path.is_file()}
+                self.snapshot_complete = self.snapshot_complete and len(self.snapshot) == len(managed)
+                self.snapshot[marker_path] = _hash(marker_path)
+                if (self.app / 'program-manifest.json').is_file():
+                    self.snapshot[self.app / 'program-manifest.json'] = _hash(self.app / 'program-manifest.json')
+            elif self.mode == 'uninstall' or (self.app.exists() and any(self.app.iterdir())):
+                raise ValueError()
+        except (OSError, ValueError, TypeError, KeyError):
+            raise FundlabError('INSTALL_TARGET_UNCONFIRMED', '所选目录不是可确认的QFund安装目录，请选择空目录或原安装位置；不会覆盖其他资料。') from None
+        return marker
+
+    def _check_versions(self, marker):
+        try:
+            value = self.incoming_version if self.incoming_version is not None else package_version('fundlab-local')
+        except PackageNotFoundError:
+            raise FundlabError('INSTALL_VERSION_UNCONFIRMED', '安装包版本信息缺失，请重新取得完整安装包。') from None
+        self.incoming_version = _version(value)
+        if marker is None:
+            return
+        recorded = _version(marker['program_version']) if 'program_version' in marker else None
+        try:
+            installed = _manifest_version(self.app)
+        except FundlabError:
+            if recorded is None:
+                raise
+            installed = recorded
+        if recorded is not None:
+            installed = max(installed, recorded)
+        if self.incoming_version < installed:
+            raise FundlabError('INSTALL_DOWNGRADE_BLOCKED', '此安装包版本低于已安装版本，请使用相同或更新版本的完整安装包。')
+
     def remove_task(self):
         if self.mode != 'uninstall':
             raise FundlabError('INSTALL_MODE_INVALID', '此操作只能用于卸载。')
@@ -183,8 +261,10 @@ class MaintenanceSession:
         if self.mode == 'install':
             if any(not path.is_file() or _hash(path) != digest for path, digest in _bundle_files(self.app).items()):
                 raise FundlabError('INSTALL_PROGRAM_INCOMPLETE', '程序文件未完整写入，未恢复自动任务；请保留安装记录。')
+            if _manifest_version(self.app) != self.incoming_version:
+                raise FundlabError('INSTALL_VERSION_MISMATCH', '写入程序的版本与安装维护版本不一致，请保留安装记录并使用完整安装包修复。')
             _write_json(self.app / 'qfund-install.json', dict(product='QFund', schema=1, install_id=self.install_id,
-                        app_dir=str(self.app), data_root=str(self.config.root.resolve())))
+                        app_dir=str(self.app), data_root=str(self.config.root.resolve()), program_version=str(self.incoming_version)))
             self._restore_task()
         elif not self.removed:
             raise FundlabError('INSTALL_TASK_UNCONFIRMED', '卸载尚未完成任务移除检查。')

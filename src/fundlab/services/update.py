@@ -4,7 +4,8 @@ import sqlite3
 from typing import Callable
 
 from fundlab.collectors.jisilu_qdii import fetch_window
-from fundlab.collectors.session import ProfileLock
+from fundlab.services.locking import update_lock
+from fundlab.services.data_management import prepare_repository_locked, ensure_active_locked
 from fundlab.config import AppConfig
 from fundlab.errors import FundlabError
 from fundlab.exports.service import export_history
@@ -12,10 +13,6 @@ from fundlab.models import UpdateResult
 from fundlab.parsers.history import parse_history
 from fundlab.storage.repository import Repository
 from fundlab.validation import validate_code
-
-
-def update_lock(config: AppConfig):
-    return ProfileLock(config.local_dir / "update.lock", FundlabError("UPDATE_BUSY", "已有更新或导出任务进行中，请等待结束后重试。"))
 
 
 def _export(repo: Repository, config: AppConfig, result: UpdateResult):
@@ -39,7 +36,8 @@ def _export(repo: Repository, config: AppConfig, result: UpdateResult):
 
 def update_one(config: AppConfig, code: str, *, mode: str = "incremental",
                progress: Callable[[str], None] | None = None,
-               trigger: str = "manual", run_id: str | None = None) -> UpdateResult:
+               trigger: str = "manual", run_id: str | None = None,
+               restore_from_trash: bool = False) -> UpdateResult:
     def notify(stage):
         if progress is not None:
             try:
@@ -47,10 +45,13 @@ def update_one(config: AppConfig, code: str, *, mode: str = "incremental",
             except Exception:
                 pass  # 页面状态通知失败不得改变数据事务。
     code = validate_code(code)
+    if type(restore_from_trash) is not bool:
+        raise FundlabError('VALIDATION_ERROR', '恢复确认须为明确的是或否。')
     if mode not in {"initial", "incremental", "full"}:
         raise FundlabError("VALIDATION_ERROR", "更新模式不受支持。")
     with update_lock(config):
-        repo = Repository(config.database_path)
+        repo = prepare_repository_locked(config)
+        ensure_active_locked(config, repo, code, restore=restore_from_trash and trigger == "manual")
         result = UpdateResult(run_id or str(uuid4()), code)
         actual_mode = "initial" if repo.get_fund(code) is None else mode
         repo.start_run(result.run_id, code, actual_mode, trigger)
@@ -102,7 +103,8 @@ def retry_export(config: AppConfig, code: str, *, trigger: str = "manual", run_i
     if not config.database_path.exists():
         raise FundlabError("NO_DATA", "还没有本地数据库，请先更新基金数据。")
     with update_lock(config):
-        repo = Repository(config.database_path)
+        repo = prepare_repository_locked(config)
+        ensure_active_locked(config, repo, code)
         if repo.get_fund(code) is None:
             raise FundlabError("NO_DATA", "本地没有该基金，请先更新。")
         result = UpdateResult(run_id or str(uuid4()), code, coverage=repo.latest_coverage(code))
