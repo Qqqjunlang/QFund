@@ -5,8 +5,6 @@
     ".gitignore",
     "README.md",
     "使用说明.md",
-    "AGENTS.md",
-    "CHANGELOG.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "pyproject.toml",

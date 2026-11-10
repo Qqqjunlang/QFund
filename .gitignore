@@ -40,3 +40,7 @@ docs/github-preparation.md
 /CONTRIBUTING.md
 /SECURITY.md
 /SUPPORT.md
+
+# 开发助手约定与旧更新记录仅本地保留，公开更新记录使用Releases
+/AGENTS.md
+/CHANGELOG.md
