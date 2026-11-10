@@ -4,7 +4,7 @@ title: "[Bug] "
 body:
   - type: markdown
     attributes:
-      value: 请勿提交密码、cookie、token、个人数据库、浏览器profile或完整私人日志。安全漏洞请按SECURITY.md报告。
+      value: 请勿提交密码、cookie、token、个人数据库、浏览器profile或完整私人日志。尚未修复的安全漏洞请勿在公开Issue披露细节。
   - type: input
     id: version
     attributes:
